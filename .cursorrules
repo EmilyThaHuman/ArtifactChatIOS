@@ -1,0 +1,397 @@
+# Artifact Intelligence iOS App - Cursor Rules
+
+## Project Overview
+
+You are working on the Artifact Intelligence iOS app, a sophisticated AI workspace platform built with React Native/Expo. This is Phase 1 of a 6-week rollout focusing on library and canvas viewing capabilities. The app serves as a mobile companion to the Artifact web platform.
+
+## Brand Identity
+
+- **Name**: Artifact Intelligence
+- **Tagline**: "Unified AI Workspace & Team Collaboration Platform"
+- **Brand Colors**: Purple gradients (#9333ea, #8b5cf6, #a855f7) with supporting violets and blues
+- **Design Philosophy**: Modern, accessible, professional with glassmorphism effects
+
+## When to Use MCP Tools
+
+### Context7 Documentation Lookup
+
+**ALWAYS use Context7 MCP first** for documentation lookup on:
+
+- React Native components and APIs (latest version)
+- Expo SDK features and modules (latest SDK)
+- TypeScript types and interfaces (latest TypeScript)
+- Authentication libraries (Supabase Auth latest)
+- UI component libraries (latest versions)
+- Navigation libraries (Expo Router latest)
+- Any npm package or dependency
+- Framework-specific best practices and patterns
+
+**Critical Rule**: Before implementing ANY feature, API call, or using ANY library method, ALWAYS use Context7 to verify the latest documentation, correct syntax, and current best practices. Never assume API methods or patterns from memory - always check the most recent docs first.
+
+**Usage Pattern**:
+
+1. Start every implementation with Context7 lookup
+2. Verify correct import statements and package versions
+3. Check for any breaking changes or deprecated methods
+4. Confirm latest recommended patterns and best practices
+
+### Supabase Database Operations
+
+Use the Supabase MCP for any database-related work:
+
+- Schema queries and table structure verification
+- Authentication flow setup and troubleshooting
+- Real-time subscriptions configuration
+- Row Level Security (RLS) policy management
+- Database function creation or modification
+- User profile and workspace management
+
+**Usage**: Before implementing any database interaction, use Supabase MCP to verify schema, check existing functions, and ensure proper data relationships.
+
+## Project Structure & Architecture
+
+### Directory Organization
+
+```
+app/                    # Expo Router pages
+├── (tabs)/            # Tab-based navigation
+├── auth/              # Authentication screens
+└── _layout.tsx        # Root layout
+
+components/
+├── content/           # Content display components
+├── ui/                # Reusable UI components
+└── ...
+
+lib/                   # Core business logic
+├── auth.ts           # Authentication utilities
+├── content.ts        # Content management
+├── supabase.ts       # Database client
+└── workspace.ts      # Workspace operations
+
+constants/             # App constants and configuration
+hooks/                # Custom React hooks
+assets/               # Images and static assets
+```
+
+### Key Database Tables
+
+- `profiles` - User profile information and settings
+- `workspaces` - User workspaces and project containers
+- `threads` - Conversation threads and chat history
+- `thread_messages` - Individual messages within threads
+- `workspace_files` - File storage and metadata
+- `assistants` - AI assistant configurations
+
+## Code Style & Standards
+
+### TypeScript Guidelines
+
+- Use strict TypeScript configuration
+- Prefer interfaces over types for object definitions
+- Use proper typing for all function parameters and return values
+- Leverage union types for component variants
+- Use generic types for reusable components
+
+### React Native Best Practices
+
+- Use functional components with hooks exclusively
+- Implement proper error boundaries for fault tolerance
+- Use React.memo() for performance optimization where appropriate
+- Follow React Native's threading model (UI thread vs JS thread)
+- Optimize FlatList/SectionList with proper keyExtractor and getItemLayout
+
+### Component Architecture
+
+- Follow atomic design principles (atoms, molecules, organisms)
+- Use composition over inheritance
+- Implement proper prop typing with TypeScript
+- Create reusable components in the `components/ui/` directory
+- Content-specific components go in `components/content/`
+
+### State Management
+
+- Use React hooks (useState, useEffect, useContext) for local state
+- Implement custom hooks for complex logic
+- Use Zustand or React Context for global state when needed
+- Avoid prop drilling - use context providers appropriately
+
+## Supabase Integration Guidelines
+
+### Authentication
+
+- Implement magic link authentication as primary method
+- Support OAuth with Google, GitHub, LinkedIn
+- Handle authentication state changes properly
+- Use proper error handling for auth failures
+- Implement secure token storage
+
+### Database Operations
+
+- Use Row Level Security (RLS) for all data access
+- Implement proper error handling for database operations
+- Use TypeScript types generated from database schema
+- Leverage real-time subscriptions for live data
+- Implement offline-first approach with local caching
+
+### Real-time Features
+
+- Subscribe to workspace changes
+- Listen for new messages in active threads
+- Handle connection state changes gracefully
+- Implement proper cleanup for subscriptions
+
+## UI/UX Guidelines
+
+### Design System
+
+- Follow Artifact's purple gradient brand identity
+- Implement glassmorphism effects using backdrop blur
+- Use consistent spacing (4px base unit: 8px, 16px, 24px, 32px)
+- Apply proper border radius (8px standard, 16px for cards)
+- Support both light and dark themes
+
+### Color System
+
+```typescript
+// Primary brand colors
+purple400: '#a855f7',    // Primary interactive elements
+purple500: '#9333ea',    // Main brand color
+purple600: '#7c3aed',    // Hover states and emphasis
+violet400: '#a78bfa',    // Complementary elements
+violet500: '#8b5cf6',    // Secondary interactions
+```
+
+### Component Styling
+
+- Use StyleSheet.create() for performance
+- Implement consistent shadow system for depth
+- Apply proper touch targets (minimum 44px)
+- Use Flexbox for layouts
+- Implement responsive design for different screen sizes
+
+### Accessibility
+
+- Add proper accessibilityLabel for all interactive elements
+- Implement accessibilityHint for complex interactions
+- Support screen readers with proper heading hierarchy
+- Ensure minimum contrast ratios (WCAG 2.1 AA)
+- Test with iOS VoiceOver and Android TalkBack
+
+## Navigation & Routing
+
+### Expo Router Implementation
+
+- Use file-based routing with clear naming conventions
+- Implement proper tab navigation with Artifact branding
+- Handle deep linking for shared content
+- Use proper navigation guards for authenticated routes
+- Implement smooth transitions between screens
+
+### Navigation Patterns
+
+- Tab bar for main sections (Library, Shared, Profile, Settings)
+- Stack navigation within each tab
+- Modal presentations for focused tasks
+- Proper back button handling
+- Handle navigation state persistence
+
+## Performance Optimization
+
+### React Native Performance
+
+- Use FlatList for large datasets with proper optimization
+- Implement image caching with react-native-fast-image
+- Use React.memo() and useMemo() appropriately
+- Optimize bundle size with tree shaking
+- Profile performance with Flipper or React DevTools
+
+### Memory Management
+
+- Properly cleanup event listeners and subscriptions
+- Use weak references where appropriate
+- Implement proper component unmounting
+- Monitor memory usage in development
+- Handle large image sets efficiently
+
+### Network Optimization
+
+- Implement request caching for static content
+- Use compression for image uploads
+- Implement proper loading states
+- Handle offline scenarios gracefully
+- Optimize API call frequency
+
+## Error Handling & Logging
+
+### Error Management
+
+- Implement global error boundaries
+- Use proper try-catch blocks for async operations
+- Provide user-friendly error messages
+- Log errors for debugging and monitoring
+- Handle network connectivity issues
+
+### Development Debugging
+
+- Use React Native Debugger for complex debugging
+- Implement proper console.log statements (remove in production)
+- Use TypeScript's strict mode for compile-time error catching
+- Implement proper testing with Jest and React Native Testing Library
+
+## Security Best Practices
+
+### Data Protection
+
+- Never store sensitive data in AsyncStorage
+- Use iOS Keychain for secure token storage
+- Implement proper SSL pinning
+- Validate all user inputs
+- Use secure HTTP headers
+
+### Authentication Security
+
+- Implement proper token refresh mechanisms
+- Use secure random generation for session tokens
+- Handle authentication expiration gracefully
+- Implement biometric authentication where appropriate
+
+## Testing Strategy
+
+### Unit Testing
+
+- Test all utility functions and hooks
+- Mock Supabase client for isolated testing
+- Test component rendering with React Native Testing Library
+- Achieve minimum 80% code coverage
+- Test error scenarios and edge cases
+
+### Integration Testing
+
+- Test authentication flows end-to-end
+- Verify database operations work correctly
+- Test navigation flows between screens
+- Validate real-time subscription behavior
+
+### Manual Testing
+
+- Test on both iOS and Android devices
+- Verify accessibility with screen readers
+- Test with various network conditions
+- Validate performance on lower-end devices
+
+## Content Management
+
+### Phase 1 Features (Current)
+
+- Display conversation history (read-only)
+- Show user's image gallery
+- Browse uploaded documents
+- View canvas content (text, code, spreadsheets, HTML)
+- Search and filter content
+
+### Content Types
+
+- Conversations: Display from threads and thread_messages tables
+- Images: Grid view with metadata
+- Documents: List view with file type icons
+- Canvases: Support multiple formats with appropriate viewers
+
+## Development Workflow
+
+### Before Starting Any Task
+
+1. **MANDATORY**: Use Context7 MCP to verify latest documentation for ALL libraries, frameworks, and APIs you plan to use
+2. Use Supabase MCP to check database schema and functions
+3. Verify current package versions and any breaking changes since last update
+4. Review existing code patterns in the project
+5. Consider accessibility and performance implications
+6. Check for any deprecated methods or patterns in the latest docs
+
+### Documentation-First Development
+
+- **Never implement from memory** - always verify with Context7 first
+- **Check latest versions** - ensure you're using current syntax and methods
+- **Verify imports** - confirm correct import statements and package names
+- **Validate patterns** - ensure you're following current best practices
+
+### Code Review Checklist
+
+- TypeScript types are properly defined
+- Error handling is implemented
+- Accessibility labels are added
+- Performance considerations are addressed
+- Follows project structure conventions
+- Supabase operations use proper error handling
+
+### Git Workflow
+
+- Use descriptive commit messages
+- Create feature branches for new functionality
+- Ensure code is properly tested before merging
+- Follow conventional commit format
+
+## Common Patterns
+
+### API Calls
+
+```typescript
+// Always include proper error handling
+try {
+  const { data, error } = await supabase
+    .from('table_name')
+    .select('*')
+    .eq('user_id', userId);
+
+  if (error) throw error;
+  return data;
+} catch (error) {
+  console.error('API Error:', error);
+  // Handle error appropriately
+}
+```
+
+### Component Structure
+
+```typescript
+interface ComponentProps {
+  // Proper TypeScript typing
+}
+
+const Component: React.FC<ComponentProps> = ({ prop1, prop2 }) => {
+  // Component logic
+
+  return (
+    // JSX with proper accessibility
+  );
+};
+
+export default Component;
+```
+
+### Authentication Context
+
+```typescript
+// Use authentication context throughout the app
+const { user, signIn, signOut, loading } = useAuth();
+```
+
+## Response Format
+
+- Always provide complete, working code solutions
+- Include proper TypeScript types
+- Add accessibility properties
+- Include error handling
+- Follow established project patterns
+- Use Artifact's brand colors and design system
+- Implement proper loading and error states
+
+## Important Notes
+
+- This is Phase 1 focusing on read-only library functionality
+- Future phases will add chat capabilities and content creation
+- Maintain consistency with the web platform's design and functionality
+- Always consider mobile-specific UX patterns and constraints
+- Test on actual devices, not just simulators
+
+Remember: When in doubt about implementation details, use Context7 MCP for documentation lookup and Supabase MCP for database-related questions. Always prioritize user experience, accessibility, and performance in your implementations.
