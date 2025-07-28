@@ -22,10 +22,14 @@ import {
   Maximize2,
   X,
 } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 import { Colors } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
 import GlassContainer from '@/components/ui/GlassContainer';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
+import Navbar from '@/components/ui/Navbar';
+import Sidebar from '@/components/ui/Sidebar';
+import { useAuth } from '@/components/auth/AuthHandler';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -281,8 +285,32 @@ export default function CanvasesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(false);
+
+  const router = useRouter();
+  const { user, profile } = useAuth();
 
   const CANVASES_PER_PAGE = 10;
+
+  // Sidebar navigation functions
+  const handleSidebarToggle = () => {
+    setShowSidebar(!showSidebar);
+  };
+
+  const handleNavigateToChat = () => {
+    setShowSidebar(false);
+    router.push('/(tabs)');
+  };
+
+  const handleNavigateToLibrary = () => {
+    setShowSidebar(false);
+    router.push('/(tabs)/library');
+  };
+
+  const handleLogout = async () => {
+    setShowSidebar(false);
+    // Handle logout functionality
+  };
 
   // Handle canvas deletion
   const handleCanvasDelete = useCallback(async (messageId: string) => {
@@ -536,17 +564,30 @@ export default function CanvasesScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
+        <Navbar title="Canvases" onMenuPress={handleSidebarToggle} />
         <View style={styles.loadingContainer}>
           <LoadingSpinner size={32} />
           <Text style={styles.loadingText}>Loading your canvases...</Text>
         </View>
-      </SafeAreaView>
+        <Sidebar
+          isVisible={showSidebar}
+          onClose={() => setShowSidebar(false)}
+          user={user}
+          profile={profile}
+          onNavigateToChat={handleNavigateToChat}
+          onNavigateToLibrary={handleNavigateToLibrary}
+          onNavigateToCanvases={() => setShowSidebar(false)}
+          onLogout={handleLogout}
+        />
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
+      <Navbar title="Canvases" onMenuPress={handleSidebarToggle} />
+      
       {/* Stats */}
       {!loading && canvases.length > 0 && (
         <View style={styles.statsContainer}>
@@ -575,28 +616,41 @@ export default function CanvasesScreen() {
         ListFooterComponent={renderFooter}
         ListEmptyComponent={renderEmpty}
       />
-    </SafeAreaView>
+      
+      <Sidebar
+        isVisible={showSidebar}
+        onClose={() => setShowSidebar(false)}
+        user={user}
+        profile={profile}
+        onNavigateToChat={handleNavigateToChat}
+        onNavigateToLibrary={handleNavigateToLibrary}
+        onNavigateToCanvases={() => setShowSidebar(false)}
+        onLogout={handleLogout}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#000000', // Match main chat interface
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 16,
+    backgroundColor: '#000000',
   },
   loadingText: {
-    color: Colors.textSecondary,
+    color: Colors.textLight,
     fontSize: 16,
   },
   statsContainer: {
     paddingHorizontal: 16,
     paddingVertical: 12,
+    backgroundColor: '#000000',
   },
   statsText: {
     color: Colors.textSecondary,
@@ -605,10 +659,15 @@ const styles = StyleSheet.create({
   listContainer: {
     padding: 16,
     gap: 16,
+    backgroundColor: '#000000',
   },
   canvasCard: {
     padding: 16,
     position: 'relative',
+    backgroundColor: '#1a1a1a', // Dark secondary background
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)', // Subtle border
+    borderRadius: 12,
   },
   deleteButton: {
     position: 'absolute',
@@ -617,10 +676,12 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   canvasContent: {
     marginBottom: 16,
@@ -630,9 +691,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     minHeight: 120,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   previewText: {
-    color: Colors.textTertiary,
+    color: Colors.textSecondary, // Better contrast
     fontSize: 11,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     lineHeight: 16,
@@ -649,11 +712,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 12,
     gap: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)', // Slightly more opaque
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   canvasButtonText: {
     flex: 1,
-    color: Colors.text,
+    color: Colors.textLight,
     fontSize: 14,
     fontWeight: '500',
   },
@@ -672,6 +737,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 16,
     gap: 8,
+    backgroundColor: '#000000',
   },
   loadingMoreText: {
     color: Colors.textSecondary,
@@ -683,11 +749,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 32,
     paddingVertical: 64,
+    backgroundColor: '#000000',
   },
   emptyTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: Colors.text,
+    color: Colors.textLight,
     marginTop: 16,
     marginBottom: 8,
     textAlign: 'center',

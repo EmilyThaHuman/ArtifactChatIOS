@@ -1,539 +1,356 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TouchableOpacity,
-  ScrollView,
-  Image,
+  StyleSheet,
+  FlatList,
   Alert,
-  Modal,
-  TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import {
-  Folder,
-  Users,
   ChevronDown,
   ChevronRight,
   Plus,
+  Folder,
+  Users,
   MoreHorizontal,
   Pencil,
   Trash2,
-  Bookmark,
-  Copy,
-  Link,
-  X,
-  Loader2,
 } from 'lucide-react-native';
-import { ArtifactLogo } from './ArtifactLogo';
+import { useRouter } from 'expo-router';
+import { Colors } from '@/constants/Colors';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/components/auth/AuthHandler';
 
 interface Workspace {
   id: string;
   name: string;
-  description?: string;
-  avatar_url?: string;
-  is_personal?: boolean;
-  is_home?: boolean;
+  is_team: boolean;
+  metadata?: {
+    color?: string;
+  };
   workspace_threads?: string[];
-  color?: string;
-  metadata?: any;
-  created_at: string;
-  updated_at: string;
-}
-
-interface Thread {
-  id: string;
-  title: string;
-  updated_at: string;
-  metadata?: any;
-  workspace_id?: string;
 }
 
 interface NavChatWorkspacesProps {
-  workspaces?: Workspace[];
-  currentWorkspace?: Workspace;
-  user?: any;
-  threads?: Thread[];
   onWorkspaceSelect?: (workspaceId: string) => void;
-  onThreadSelect?: (threadId: string) => void;
-  onCreateChat?: (workspaceId: string) => void;
-  isCollapsed?: boolean;
+  currentWorkspaceId?: string;
 }
 
-export function NavChatWorkspaces({
-  workspaces = [],
-  currentWorkspace,
-  user,
-  threads = [],
-  onWorkspaceSelect,
-  onThreadSelect,
-  onCreateChat,
-  isCollapsed = false,
+export default function NavChatWorkspaces({ 
+  onWorkspaceSelect, 
+  currentWorkspaceId 
 }: NavChatWorkspacesProps) {
-  const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
-  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
-  const [isRenaming, setIsRenaming] = useState<string | null>(null);
-  const [newTitle, setNewTitle] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
 
-  // Get threads for a specific workspace
-  const getWorkspaceThreads = useCallback((workspaceId: string): Thread[] => {
-    const workspace = workspaces.find(w => w.id === workspaceId);
-    if (!workspace?.workspace_threads) return [];
-    
-    return threads.filter(thread => 
-      workspace.workspace_threads?.includes(thread.id) ||
-      thread.workspace_id === workspaceId
-    );
-  }, [workspaces, threads]);
+  const { user } = useAuth();
+  const router = useRouter();
 
-  // Toggle workspace expansion
-  const toggleWorkspaceExpansion = useCallback((workspaceId: string) => {
-    setExpandedWorkspaces(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(workspaceId)) {
-        newSet.delete(workspaceId);
-      } else {
-        newSet.add(workspaceId);
-      }
-      return newSet;
-    });
-  }, []);
+  useEffect(() => {
+    if (user) {
+      loadWorkspaces();
+    }
+  }, [user]);
 
-  // Handle workspace selection
-  const handleWorkspaceSelect = useCallback((workspaceId: string) => {
-    onWorkspaceSelect?.(workspaceId);
-  }, [onWorkspaceSelect]);
-
-  // Handle thread selection
-  const handleThreadSelect = useCallback((threadId: string) => {
-    onThreadSelect?.(threadId);
-  }, [onThreadSelect]);
-
-  // Handle creating new chat in workspace
-  const handleCreateChat = useCallback(async (workspaceId: string) => {
-    setIsLoading(true);
+  const loadWorkspaces = async () => {
     try {
-      await onCreateChat?.(workspaceId);
+      setIsLoading(true);
+
+      const { data: workspaces, error } = await supabase
+        .from('workspaces')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setWorkspaces(workspaces || []);
+    } catch (error) {
+      console.error('Error loading workspaces:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [onCreateChat]);
+  };
 
-  // Handle thread rename
-  const handleThreadRename = useCallback(async (threadId: string, newName: string) => {
-    // Implementation would go here
-    console.log('Rename thread:', threadId, newName);
-    setIsRenaming(null);
-    setNewTitle('');
-  }, []);
+  const handleWorkspacePress = (workspace: Workspace) => {
+    console.log('🚀 NavChatWorkspaces: Navigating to workspace:', workspace.id, workspace.name);
+    
+    // Navigate to the individual workspace page
+    router.push(`/workspace/${workspace.id}`);
+    
+    // Also notify parent if needed
+    onWorkspaceSelect?.(workspace.id);
+  };
 
-  // Handle thread delete
-  const handleThreadDelete = useCallback(async (threadId: string) => {
+  const handleCreateWorkspace = () => {
+    // For now, show an alert that creation will be implemented
     Alert.alert(
-      'Delete Thread',
-      'Are you sure you want to delete this thread?',
+      'Create Project', 
+      'Project creation dialog will be implemented soon',
       [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            // Implementation would go here
-            console.log('Delete thread:', threadId);
-          },
-        },
+        { text: 'OK' }
       ]
     );
-  }, []);
+  };
 
-  // Get workspace color
-  const getWorkspaceColor = useCallback((workspace: Workspace) => {
-    return workspace.color || (workspace.is_personal ? '#9333ea' : '#3b82f6');
-  }, []);
+  const getWorkspaceColor = (workspace: Workspace) => {
+    return workspace.metadata?.color || Colors.purple500;
+  };
 
-  // Render workspace avatar
-  const renderWorkspaceAvatar = useCallback((workspace: Workspace) => {
-    const color = getWorkspaceColor(workspace);
-    
-    if (workspace.avatar_url) {
-      return (
-        <Image
-          source={{ uri: workspace.avatar_url }}
-          style={[styles.workspaceAvatar, { backgroundColor: color }]}
-          onError={() => console.log('Workspace avatar failed to load')}
-        />
-      );
-    }
-
-    const IconComponent = workspace.is_personal ? Folder : Users;
-    return (
-      <View style={[styles.workspaceAvatar, { backgroundColor: color }]}>
-        <IconComponent size={16} color="#ffffff" />
-      </View>
-    );
-  }, [getWorkspaceColor]);
-
-  // Render thread item
-  const renderThreadItem = useCallback((thread: Thread, workspaceId: string) => {
-    const isExpanded = expandedWorkspaces.has(workspaceId);
-    if (!isExpanded) return null;
+  const renderWorkspaceItem = ({ item }: { item: Workspace }) => {
+    const isSelected = currentWorkspaceId === item.id;
+    const workspaceColor = getWorkspaceColor(item);
+    const threadCount = item.workspace_threads?.length || 0;
 
     return (
-      <View key={thread.id} style={styles.threadContainer}>
-        <TouchableOpacity
-          style={styles.threadItem}
-          onPress={() => handleThreadSelect(thread.id)}
-        >
-          <View style={styles.threadContent}>
-            <ArtifactLogo style={styles.threadIcon} />
-            {isRenaming === thread.id ? (
-              <TextInput
-                style={styles.threadInput}
-                value={newTitle}
-                onChangeText={setNewTitle}
-                onSubmitEditing={() => handleThreadRename(thread.id, newTitle)}
-                onBlur={() => {
-                  if (newTitle.trim()) {
-                    handleThreadRename(thread.id, newTitle);
-                  } else {
-                    setIsRenaming(null);
-                    setNewTitle('');
-                  }
-                }}
-                autoFocus
-                placeholder="Thread name"
-                placeholderTextColor="#6b7280"
-              />
-            ) : (
-              <Text style={styles.threadTitle} numberOfLines={1}>
-                {thread.title || 'Untitled Chat'}
-              </Text>
-            )}
-          </View>
-
-          <TouchableOpacity
-            style={styles.threadMenuButton}
-            onPress={() => setOpenDropdownId(openDropdownId === thread.id ? null : thread.id)}
+      <TouchableOpacity
+        style={[
+          styles.workspaceItem,
+          isSelected && styles.workspaceItemSelected,
+        ]}
+        onPress={() => handleWorkspacePress(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.workspaceLeft}>
+          <View 
+            style={[
+              styles.workspaceIcon, 
+              { backgroundColor: workspaceColor }
+            ]}
           >
-            <MoreHorizontal size={16} color="#6b7280" />
-          </TouchableOpacity>
-        </TouchableOpacity>
-
-        {/* Thread dropdown menu */}
-        {openDropdownId === thread.id && (
-          <View style={styles.threadDropdown}>
-            <TouchableOpacity
-              style={styles.dropdownItem}
-              onPress={() => {
-                setIsRenaming(thread.id);
-                setNewTitle(thread.title || '');
-                setOpenDropdownId(null);
-              }}
-            >
-              <Pencil size={16} color="#ffffff" />
-              <Text style={styles.dropdownItemText}>Rename</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.dropdownItem}
-              onPress={() => {
-                // Handle bookmark toggle
-                setOpenDropdownId(null);
-              }}
-            >
-              <Bookmark size={16} color="#ffffff" />
-              <Text style={styles.dropdownItemText}>
-                {thread.metadata?.bookmarked ? 'Remove Bookmark' : 'Bookmark'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.dropdownItem}
-              onPress={() => {
-                // Handle share
-                setOpenDropdownId(null);
-              }}
-            >
-              <Link size={16} color="#ffffff" />
-              <Text style={styles.dropdownItemText}>Share</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.dropdownItem}
-              onPress={() => {
-                // Handle clone
-                setOpenDropdownId(null);
-              }}
-            >
-              <Copy size={16} color="#ffffff" />
-              <Text style={styles.dropdownItemText}>Clone</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.dropdownItem, styles.dropdownItemDestructive]}
-              onPress={() => {
-                setOpenDropdownId(null);
-                handleThreadDelete(thread.id);
-              }}
-            >
-              <Trash2 size={16} color="#ef4444" />
-              <Text style={[styles.dropdownItemText, styles.dropdownItemDestructiveText]}>
-                Delete
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-    );
-  }, [
-    expandedWorkspaces,
-    isRenaming,
-    newTitle,
-    openDropdownId,
-    handleThreadSelect,
-    handleThreadRename,
-    handleThreadDelete,
-  ]);
-
-  // Render workspace item
-  const renderWorkspaceItem = useCallback((workspace: Workspace) => {
-    const workspaceThreads = getWorkspaceThreads(workspace.id);
-    const isExpanded = expandedWorkspaces.has(workspace.id);
-    const isSelected = currentWorkspace?.id === workspace.id;
-
-    return (
-      <View key={workspace.id} style={styles.workspaceContainer}>
-        <TouchableOpacity
-          style={[styles.workspaceItem, isSelected && styles.workspaceItemSelected]}
-          onPress={() => handleWorkspaceSelect(workspace.id)}
-        >
-          <View style={styles.workspaceContent}>
-            {renderWorkspaceAvatar(workspace)}
-            
-            {!isCollapsed && (
-              <>
-                <Text style={styles.workspaceName} numberOfLines={1}>
-                  {workspace.name}
-                </Text>
-                
-                <View style={styles.workspaceActions}>
-                  {workspaceThreads.length > 0 && (
-                    <TouchableOpacity
-                      style={styles.expandButton}
-                      onPress={() => toggleWorkspaceExpansion(workspace.id)}
-                    >
-                      {isExpanded ? (
-                        <ChevronDown size={16} color="#9ca3af" />
-                      ) : (
-                        <ChevronRight size={16} color="#9ca3af" />
-                      )}
-                    </TouchableOpacity>
-                  )}
-                  
-                  <TouchableOpacity
-                    style={styles.addChatButton}
-                    onPress={() => handleCreateChat(workspace.id)}
-                    disabled={isLoading}
-                  >
-                    {isLoading ? (
-                      <Loader2 size={16} color="#9ca3af" />
-                    ) : (
-                      <Plus size={16} color="#9ca3af" />
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </>
+            {item.is_team ? (
+              <Users size={12} color="white" />
+            ) : (
+              <Folder size={12} color="white" />
             )}
           </View>
+          
+          <View style={styles.workspaceInfo}>
+            <Text 
+              style={[
+                styles.workspaceName,
+                isSelected && styles.workspaceNameSelected,
+              ]} 
+              numberOfLines={1}
+            >
+              {item.name}
+            </Text>
+            <Text style={styles.workspaceSubtitle}>
+              {threadCount} chat{threadCount !== 1 ? 's' : ''}
+            </Text>
+          </View>
+        </View>
+
+        <TouchableOpacity
+          style={styles.workspaceMenu}
+          onPress={() => {
+            // Handle workspace menu actions
+            Alert.alert(
+              item.name,
+              'Workspace options will be implemented soon',
+              [{ text: 'OK' }]
+            );
+          }}
+          activeOpacity={0.7}
+        >
+          <MoreHorizontal size={14} color={Colors.textSecondary} />
         </TouchableOpacity>
-
-        {/* Workspace threads */}
-        {!isCollapsed && workspaceThreads.map(thread => 
-          renderThreadItem(thread, workspace.id)
-        )}
-      </View>
+      </TouchableOpacity>
     );
-  }, [
-    getWorkspaceThreads,
-    expandedWorkspaces,
-    currentWorkspace,
-    isCollapsed,
-    isLoading,
-    renderWorkspaceAvatar,
-    handleWorkspaceSelect,
-    toggleWorkspaceExpansion,
-    handleCreateChat,
-    renderThreadItem,
-  ]);
+  };
 
-  if (workspaces.length === 0) {
-    return (
-      <View style={styles.emptyState}>
-        <Text style={styles.emptyStateText}>No workspaces found</Text>
-      </View>
-    );
-  }
+  const renderEmptyState = () => (
+    <View style={styles.emptyState}>
+      <Text style={styles.emptyText}>No projects yet</Text>
+      <TouchableOpacity
+        style={styles.createFirstButton}
+        onPress={handleCreateWorkspace}
+        activeOpacity={0.7}
+      >
+        <Plus size={12} color={Colors.purple500} />
+        <Text style={styles.createFirstButtonText}>Create your first project</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
+      {/* Header */}
+      <TouchableOpacity
+        style={styles.header}
+        onPress={() => setIsCollapsed(!isCollapsed)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.headerLeft}>
+          {isCollapsed ? (
+            <ChevronRight size={16} color="#ffffff" />
+          ) : (
+            <ChevronDown size={16} color="#ffffff" />
+          )}
+          <Text style={styles.headerTitle}>Projects</Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.createButton}
+          onPress={handleCreateWorkspace}
+          disabled={isCreating}
+          activeOpacity={0.7}
+        >
+          {isCreating ? (
+            <ActivityIndicator size={12} color={Colors.purple500} />
+          ) : (
+            <Plus size={12} color={Colors.purple500} />
+          )}
+        </TouchableOpacity>
+      </TouchableOpacity>
+
+      {/* Content */}
       {!isCollapsed && (
-        <View style={styles.header}>
-          <Text style={styles.sectionTitle}>Projects</Text>
+        <View style={styles.content}>
+          {isLoading ? (
+            <View style={styles.loadingState}>
+              <ActivityIndicator size={16} color={Colors.textSecondary} />
+              <Text style={styles.loadingText}>Loading projects...</Text>
+            </View>
+          ) : workspaces.length > 0 ? (
+            <FlatList
+              data={workspaces}
+              renderItem={renderWorkspaceItem}
+              keyExtractor={(item) => item.id}
+              showsVerticalScrollIndicator={false}
+              scrollEnabled={false} // Disable scroll since it's in sidebar
+            />
+          ) : (
+            renderEmptyState()
+          )}
         </View>
       )}
-      
-      <ScrollView 
-        style={styles.workspacesList} 
-        showsVerticalScrollIndicator={false}
-        nestedScrollEnabled={true}
-      >
-        {workspaces.map(renderWorkspaceItem)}
-      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    marginBottom: 8,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'transparent',
+    borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
+    marginVertical: 2,
   },
-  sectionTitle: {
-    color: '#9ca3af',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  emptyState: {
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
+  },
+  headerTitle: {
+    color: '#ffffff',
+    fontSize: 14,
+    marginLeft: 8,
+    flex: 1,
+  },
+  createButton: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(147, 51, 234, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 32,
   },
-  emptyStateText: {
-    color: '#6b7280',
-    fontSize: 14,
+  content: {
+    marginLeft: 8,
+    marginTop: 4,
   },
-  workspacesList: {
-    flex: 1,
+  loadingState: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    gap: 8,
   },
-  workspaceContainer: {
-    marginBottom: 4,
+  loadingText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
   },
   workspaceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 8,
-    marginHorizontal: 4,
+    borderRadius: 6,
+    marginBottom: 2,
   },
   workspaceItemSelected: {
-    backgroundColor: 'rgba(147, 51, 234, 0.1)',
+    backgroundColor: 'rgba(147, 51, 234, 0.15)',
   },
-  workspaceContent: {
+  workspaceLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    flex: 1,
   },
-  workspaceAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+  workspaceIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 8,
+  },
+  workspaceInfo: {
+    flex: 1,
   },
   workspaceName: {
-    flex: 1,
-    color: '#ffffff',
-    fontSize: 14,
+    color: Colors.textLight,
+    fontSize: 13,
     fontWeight: '500',
+    marginBottom: 1,
   },
-  workspaceActions: {
+  workspaceNameSelected: {
+    color: Colors.purple400,
+  },
+  workspaceSubtitle: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+  },
+  workspaceMenu: {
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    opacity: 0.6,
+  },
+  emptyState: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  emptyText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  createFirstButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-  },
-  expandButton: {
-    padding: 4,
-  },
-  addChatButton: {
-    padding: 4,
-  },
-  threadContainer: {
-    position: 'relative',
-  },
-  threadItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 6,
-    marginHorizontal: 4,
-    borderRadius: 6,
-  },
-  threadContent: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  threadIcon: {
-    width: 16,
-    height: 16,
-  },
-  threadTitle: {
-    flex: 1,
-    color: '#d1d5db',
-    fontSize: 13,
-  },
-  threadInput: {
-    flex: 1,
-    color: '#ffffff',
-    fontSize: 13,
-    backgroundColor: '#374151',
-    borderRadius: 4,
+    backgroundColor: 'rgba(147, 51, 234, 0.1)',
     paddingHorizontal: 8,
     paddingVertical: 4,
+    borderRadius: 4,
+    gap: 4,
   },
-  threadMenuButton: {
-    padding: 4,
+  createFirstButtonText: {
+    color: Colors.purple500,
+    fontSize: 11,
+    fontWeight: '500',
   },
-  threadDropdown: {
-    position: 'absolute',
-    right: 8,
-    top: 32,
-    backgroundColor: '#374151',
-    borderRadius: 8,
-    paddingVertical: 4,
-    minWidth: 150,
-    zIndex: 1000,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  dropdownItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 8,
-  },
-  dropdownItemDestructive: {
-    // Additional styling for destructive actions
-  },
-  dropdownItemText: {
-    color: '#ffffff',
-    fontSize: 14,
-  },
-  dropdownItemDestructiveText: {
-    color: '#ef4444',
-  },
-});
-
-export default NavChatWorkspaces; 
+}); 

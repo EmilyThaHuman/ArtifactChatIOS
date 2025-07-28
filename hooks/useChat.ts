@@ -64,7 +64,12 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   // Load existing messages if threadId is provided
   useEffect(() => {
     if (threadId) {
+      // Clear messages when switching threads to prevent showing old messages briefly
+      setMessages([]);
       loadMessages();
+    } else {
+      // Clear messages if no threadId
+      setMessages([]);
     }
   }, [threadId]);
 

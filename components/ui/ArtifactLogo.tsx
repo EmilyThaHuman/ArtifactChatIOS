@@ -7,12 +7,14 @@ interface ArtifactLogoProps {
   size?: 'small' | 'medium' | 'large';
   variant?: 'full' | 'icon' | 'text';
   showTagline?: boolean;
+  style?: any;
 }
 
 export default function ArtifactLogo({ 
   size = 'medium', 
   variant = 'full',
-  showTagline = false 
+  showTagline = false,
+  style
 }: ArtifactLogoProps) {
   const getSizes = () => {
     switch (size) {
@@ -29,20 +31,19 @@ export default function ArtifactLogo({
 
   if (variant === 'icon') {
     return (
-      <View style={[styles.container, { width: sizes.logo, height: sizes.logo }]}>
-        <LinearGradient
-          colors={Gradients.primary}
-          style={[styles.iconContainer, { width: sizes.logo, height: sizes.logo }]}
-        >
-          <Text style={[styles.iconText, { fontSize: sizes.logo * 0.6 }]}>A</Text>
-        </LinearGradient>
+      <View style={[styles.container, { width: sizes.logo, height: sizes.logo }, style]}>
+        <Image
+          source={require('../../assets/images/artifact-transparent-01.webp')}
+          style={[styles.logoImage, { width: sizes.logo, height: sizes.logo }]}
+          resizeMode="contain"
+        />
       </View>
     );
   }
 
   if (variant === 'text') {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, style]}>
         <Text style={[styles.logoText, { fontSize: sizes.text }]}>
           Artifact Intelligence
         </Text>
@@ -56,14 +57,13 @@ export default function ArtifactLogo({
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, style]}>
       <View style={styles.fullLogo}>
-        <LinearGradient
-          colors={Gradients.primary}
-          style={[styles.iconContainer, { width: sizes.logo, height: sizes.logo }]}
-        >
-          <Text style={[styles.iconText, { fontSize: sizes.logo * 0.6 }]}>A</Text>
-        </LinearGradient>
+        <Image
+          source={require('../../assets/images/artifact-transparent-01.webp')}
+          style={[styles.logoImage, { width: sizes.logo, height: sizes.logo }]}
+          resizeMode="contain"
+        />
         <View style={styles.textContainer}>
           <Text style={[styles.logoText, { fontSize: sizes.text }]}>
             Artifact Intelligence
@@ -87,6 +87,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  logoImage: {
+    borderRadius: 8,
   },
   iconContainer: {
     borderRadius: 12,

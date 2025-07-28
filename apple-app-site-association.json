@@ -2,7 +2,7 @@
   "applinks": {
     "details": [
       {
-        "appIDs": ["TEAMID.com.artifact.intelligence"],
+        "appIDs": ["6Z7QR347W9.com.artifact.intelligence"],
         "components": [
           {
             "/": "/app/*",
@@ -21,9 +21,9 @@
     ]
   },
   "activitycontinuation": {
-    "apps": ["TEAMID.com.artifact.intelligence"]
+    "apps": ["6Z7QR347W9.com.artifact.intelligence"]
   },
   "webcredentials": {
-    "apps": ["TEAMID.com.artifact.intelligence"]
+    "apps": ["6Z7QR347W9.com.artifact.intelligence"]
   }
 }

@@ -21,7 +21,7 @@ import {
   Link,
   Loader2,
 } from 'lucide-react-native';
-import { ArtifactLogo } from './ArtifactLogo';
+import { Colors } from '@/constants/Colors';
 
 interface Thread {
   id: string;
@@ -32,6 +32,8 @@ interface Thread {
     bookmarked?: boolean;
     is_shared_thread?: boolean;
     shared_in_workspace?: boolean;
+    excludeFromNavHistory?: boolean;
+    isScheduledTask?: boolean;
   };
   is_team?: boolean;
 }
@@ -80,11 +82,16 @@ export function NavChatHistory({
   const [newTitle, setNewTitle] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  // Collapse when sidebar is collapsed on desktop
+  useEffect(() => {
+    if (isCollapsed) {
+      setIsExpanded(false);
+    }
+  }, [isCollapsed]);
+
   // Group threads by date
   const historyGroups = useMemo(() => {
     try {
-      const movedThreads = threads.filter(t => t.metadata?.moved_to_history_at);
-      
       const today = new Date();
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
@@ -118,6 +125,15 @@ export function NavChatHistory({
         if (thread?.title === 'New Chat') return false;
         if (thread.metadata?.excludeFromNavHistory || thread.metadata?.isScheduledTask) return false;
         
+        // For team threads, only show if they have been moved to history
+        const isTeamThread = thread.is_team === true;
+        if (isTeamThread) {
+          const hasBeenMovedToHistory = thread.metadata?.moved_to_history_at;
+          return hasBeenMovedToHistory;
+        }
+        
+        // For non-team threads, show them (unless they're workspace threads)
+        // Note: workspace filtering not implemented in mobile app yet
         return true;
       });
 
@@ -157,9 +173,9 @@ export function NavChatHistory({
     [historyGroups]
   );
 
-  // Toggle expansion
+  // Toggle expansion - don't allow expansion when sidebar is collapsed
   const toggleExpansion = useCallback(() => {
-    if (isCollapsed) return; // Don't allow expansion when sidebar is collapsed
+    if (isCollapsed) return;
     setIsExpanded(!isExpanded);
   }, [isExpanded, isCollapsed]);
 
@@ -254,10 +270,8 @@ export function NavChatHistory({
         >
           <View style={styles.threadContent}>
             {thread.metadata?.bookmarked && (
-              <Bookmark size={14} color="#a855f7" style={styles.bookmarkIcon} />
+              <Bookmark size={14} color={Colors.purple400} style={styles.bookmarkIcon} />
             )}
-            
-            <ArtifactLogo style={styles.threadIcon} />
             
             {isThreadRenaming ? (
               <TextInput
@@ -274,7 +288,7 @@ export function NavChatHistory({
                 }}
                 autoFocus
                 placeholder="Thread name"
-                placeholderTextColor="#6b7280"
+                placeholderTextColor={Colors.textSecondary}
               />
             ) : (
               <Text style={styles.threadTitle} numberOfLines={1}>
@@ -288,7 +302,7 @@ export function NavChatHistory({
               style={styles.threadMenuButton}
               onPress={() => setOpenDropdownId(openDropdownId === thread.id ? null : thread.id)}
             >
-              <MoreHorizontal size={14} color="#6b7280" />
+              <MoreHorizontal size={14} color={Colors.textSecondary} />
             </TouchableOpacity>
           )}
         </TouchableOpacity>
@@ -300,7 +314,7 @@ export function NavChatHistory({
               style={styles.dropdownItem}
               onPress={() => handleToggleBookmark(thread.id)}
             >
-              <Bookmark size={16} color="#ffffff" />
+              <Bookmark size={16} color={Colors.textLight} />
               <Text style={styles.dropdownItemText}>
                 {thread.metadata?.bookmarked ? 'Remove Bookmark' : 'Bookmark'}
               </Text>
@@ -310,7 +324,7 @@ export function NavChatHistory({
               style={styles.dropdownItem}
               onPress={() => startRenaming(thread)}
             >
-              <Pencil size={16} color="#ffffff" />
+              <Pencil size={16} color={Colors.textLight} />
               <Text style={styles.dropdownItemText}>Rename</Text>
             </TouchableOpacity>
 
@@ -318,7 +332,7 @@ export function NavChatHistory({
               style={styles.dropdownItem}
               onPress={() => handleThreadShare(thread.id)}
             >
-              <Link size={16} color="#ffffff" />
+              <Link size={16} color={Colors.textLight} />
               <Text style={styles.dropdownItemText}>Share as link</Text>
             </TouchableOpacity>
 
@@ -326,7 +340,7 @@ export function NavChatHistory({
               style={styles.dropdownItem}
               onPress={() => handleThreadClone(thread.id)}
             >
-              <Copy size={16} color="#ffffff" />
+              <Copy size={16} color={Colors.textLight} />
               <Text style={styles.dropdownItemText}>Clone</Text>
             </TouchableOpacity>
 
@@ -364,9 +378,7 @@ export function NavChatHistory({
 
     return (
       <View key={group.label} style={styles.historyGroup}>
-        <View style={styles.historyGroupHeader}>
-          <Text style={styles.historyGroupLabel}>{group.label}</Text>
-        </View>
+        <Text style={styles.historyGroupLabel}>{group.label}</Text>
         {group.threads.map(renderThreadItem)}
       </View>
     );
@@ -378,26 +390,35 @@ export function NavChatHistory({
 
   return (
     <View style={styles.container}>
-      {/* History Header */}
+      {/* History Header - styled like nav buttons */}
       <TouchableOpacity
-        style={styles.historyHeader}
+        style={[
+          styles.historyHeader,
+          !isCollapsed && {
+            backgroundColor: 'transparent',
+            borderRadius: 8,
+            borderWidth: 2,
+            borderColor: 'rgba(147, 51, 234, 0.15)',
+            marginVertical: 2,
+          }
+        ]}
         onPress={toggleExpansion}
         disabled={isCollapsed}
       >
         <View style={styles.historyHeaderContent}>
           {totalThreadsCount > 0 ? (
             <View style={styles.historyHeaderIcon}>
-              <History size={18} color="#9ca3af" />
+              <History size={18} color={Colors.textLight} />
               {!isCollapsed && (
                 isExpanded ? (
-                  <ChevronDown size={18} color="#9ca3af" />
+                  <ChevronDown size={18} color={Colors.textLight} />
                 ) : (
-                  <ChevronRight size={18} color="#9ca3af" />
+                  <ChevronRight size={18} color={Colors.textLight} />
                 )
               )}
             </View>
           ) : (
-            <History size={18} color="#6b7280" />
+            <History size={18} color={Colors.textSecondary} />
           )}
           
           {!isCollapsed && (
@@ -410,13 +431,9 @@ export function NavChatHistory({
 
       {/* History Groups */}
       {isExpanded && !isCollapsed && totalThreadsCount > 0 && (
-        <ScrollView 
-          style={styles.historyContent} 
-          showsVerticalScrollIndicator={false}
-          nestedScrollEnabled={true}
-        >
+        <View style={styles.historyContent}>
           {historyGroups.map(renderHistoryGroup)}
-        </ScrollView>
+        </View>
       )}
 
       {/* No results message */}
@@ -433,12 +450,11 @@ export function NavChatHistory({
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    marginVertical: 4,
   },
   historyHeader: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 10,
     marginHorizontal: 4,
   },
   historyHeaderContent: {
@@ -452,26 +468,24 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   historyHeaderText: {
-    color: '#9ca3af',
+    color: Colors.textLight,
     fontSize: 14,
-    fontWeight: '500',
     flex: 1,
   },
   historyContent: {
-    flex: 1,
-    paddingLeft: 8,
+    paddingLeft: 16,
+    marginTop: 8,
   },
   historyGroup: {
-    marginBottom: 8,
-  },
-  historyGroupHeader: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    marginBottom: 16,
   },
   historyGroupLabel: {
-    color: '#6b7280',
+    color: Colors.textSecondary,
     fontSize: 12,
     fontWeight: '500',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    marginBottom: 4,
   },
   threadContainer: {
     position: 'relative',
@@ -481,12 +495,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderRadius: 6,
     marginHorizontal: 4,
   },
   threadItemSelected: {
-    backgroundColor: 'rgba(147, 51, 234, 0.1)',
+    backgroundColor: 'rgba(147, 51, 234, 0.15)',
   },
   threadContent: {
     flex: 1,
@@ -497,21 +511,16 @@ const styles = StyleSheet.create({
   bookmarkIcon: {
     flexShrink: 0,
   },
-  threadIcon: {
-    width: 16,
-    height: 16,
-    flexShrink: 0,
-  },
   threadTitle: {
     flex: 1,
-    color: '#d1d5db',
+    color: Colors.textLight,
     fontSize: 13,
   },
   threadInput: {
     flex: 1,
-    color: '#ffffff',
+    color: Colors.textLight,
     fontSize: 13,
-    backgroundColor: '#374151',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -524,7 +533,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 8,
     top: 32,
-    backgroundColor: '#374151',
+    backgroundColor: '#1a1a1a',
     borderRadius: 8,
     paddingVertical: 4,
     minWidth: 160,
@@ -537,6 +546,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   dropdownItem: {
     flexDirection: 'row',
@@ -549,7 +560,7 @@ const styles = StyleSheet.create({
     // Additional styling for destructive actions
   },
   dropdownItemText: {
-    color: '#ffffff',
+    color: Colors.textLight,
     fontSize: 14,
   },
   dropdownItemDestructiveText: {
@@ -561,7 +572,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   noResultsText: {
-    color: '#6b7280',
+    color: Colors.textSecondary,
     fontSize: 14,
     textAlign: 'center',
   },

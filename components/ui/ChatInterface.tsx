@@ -35,6 +35,7 @@ import { ToolSelector } from '@/components/ui/ToolSelector';
 import { OpenAIIcon } from '@/components/ui/OpenAIIcon';
 import { ActionButtons } from '@/components/ui/ActionButtons';
 import { ProviderAvatar } from '@/components/ui/ProviderAvatar';
+import ChatInput from '@/components/ui/ChatInput';
 import { OPENAI_MODEL_INFO, MODEL_CATEGORY_COLORS, ModelInfo } from '@/constants/Models';
 
 interface ChatInterfaceProps {
@@ -42,9 +43,12 @@ interface ChatInterfaceProps {
   title: string;
   showInput?: boolean;
   showSuggestions?: boolean;
+  showHeader?: boolean;
   threadId?: string;
   workspaceId?: string;
   onThreadTitleUpdated?: (threadId: string, newTitle: string) => void;
+  pendingMessage?: string | null;
+  onPendingMessageSent?: () => void;
 }
 
 interface ModelOption {
@@ -79,44 +83,20 @@ export default function ChatInterface({
   title,
   showInput = true,
   showSuggestions = false,
+  showHeader = true,
   threadId,
   workspaceId,
-  onThreadTitleUpdated
+  onThreadTitleUpdated,
+  pendingMessage,
+  onPendingMessageSent
 }: ChatInterfaceProps) {
-  const [inputText, setInputText] = useState('');
   const [selectedModel, setSelectedModel] = useState(modelOptions[0]);
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [activeMessageButtons, setActiveMessageButtons] = useState<string | null>(null);
   
   const scrollViewRef = useRef<ScrollView>(null);
-  
-  // File upload hook
-  const {
-    files,
-    isUploading,
-    pickDocument,
-    pickImage,
-    removeFile,
-    clearFiles
-  } = useFileUpload(threadId, workspaceId);
 
-  // Tool state management
-  const [activeToolId, setActiveToolId] = useState<string | null>(null);
-  const [selectedImageStyle, setSelectedImageStyle] = useState<any>(null);
 
-  // Tool handlers
-  const handleToolChange = useCallback((toolId: string | null) => {
-    setActiveToolId(toolId);
-    // TODO: Implement tool-specific logic
-  }, []);
-
-  const handleStyleSelection = useCallback((toolId: string, style: any) => {
-    setSelectedImageStyle(style);
-    // TODO: Store style for next image generation
-  }, []);
-
-  const handleShowAuthOverlay = useCallback((feature: string) => {
-    Alert.alert('Feature Locked', `Please upgrade to access ${feature}.`);
-  }, []);
 
   const {
     messages,
@@ -143,6 +123,35 @@ export default function ChatInterface({
       }, 100);
     }
   }, [messages]);
+
+  // Handle pending message auto-send
+  useEffect(() => {
+    console.log('🧵 ChatInterface: Auto-send useEffect triggered', {
+      pendingMessage: !!pendingMessage,
+      threadId: !!threadId,
+      isLoading,
+      pendingMessageValue: pendingMessage
+    });
+    
+    if (pendingMessage && threadId && !isLoading) {
+      console.log('🧵 ChatInterface: Auto-sending pending message:', pendingMessage);
+      
+      // Send the message after a brief delay to ensure UI is ready
+      setTimeout(async () => {
+        try {
+          console.log('🧵 ChatInterface: Calling sendMessage with:', pendingMessage);
+          await sendMessage(pendingMessage);
+          console.log('🧵 ChatInterface: Message sent successfully');
+          
+          if (onPendingMessageSent) {
+            onPendingMessageSent();
+          }
+        } catch (error) {
+          console.error('🧵 ChatInterface: Error sending pending message:', error);
+        }
+      }, 500);
+    }
+  }, [pendingMessage, threadId, isLoading]);
 
   // Message action handlers
   const handleEditMessage = useCallback((messageId: string) => {
@@ -231,20 +240,13 @@ export default function ChatInterface({
     Alert.alert('Canvas', 'Canvas view will be implemented in a future update');
   }, []);
 
-  const handleSendMessage = async () => {
-    if (!inputText.trim() || isLoading) return;
-    
-    const messageContent = inputText.trim();
-    const attachedFiles = files.filter(f => f.status === 'completed');
-    
-    setInputText('');
-    clearFiles(); // Clear files after sending
-    
-    await sendMessage(messageContent, attachedFiles);
+  const handleSendMessage = async (content: string, files?: any[]) => {
+    await sendMessage(content, files);
   };
 
   const handleSuggestionPress = (suggestion: string) => {
-    setInputText(suggestion);
+    // Send the suggestion directly since ChatInput handles the input state
+    handleSendMessage(suggestion);
   };
 
   const handleModelSelect = (model: ModelOption) => {
@@ -339,8 +341,8 @@ export default function ChatInterface({
      const previousMessage = index > 0 ? messages[index - 1] : null;
      const previousMessageHasToolData = false; // Placeholder for now
 
-    // State for button visibility (simulating hover)
-    const [showButtons, setShowButtons] = useState(false);
+    // Check if this message should show buttons
+    const showButtons = activeMessageButtons === message.id;
 
     return (
       <View 
@@ -352,8 +354,8 @@ export default function ChatInterface({
           !isUser && !isStreaming && styles.assistantMessageWithSpacing,
           (message.webSearchData || message.imageData || message.canvasData) && styles.messageContainerWithToolData
         ]}
-        onTouchStart={() => setShowButtons(true)}
-        onTouchEnd={() => setTimeout(() => setShowButtons(false), 3000)}
+        onTouchStart={() => setActiveMessageButtons(message.id)}
+        onTouchEnd={() => setTimeout(() => setActiveMessageButtons(null), 3000)}
       >
         {/* Assistant message container with avatar */}
         {!isUser && (
@@ -473,139 +475,7 @@ export default function ChatInterface({
     </TouchableOpacity>
   );
 
-  // Get file background color based on extension (matching web app)
-  const getFileBackgroundColor = (filename: string) => {
-    if (!filename) return '#3b82f6'; // blue-500
 
-    const extension = filename.split('.').pop()?.toLowerCase();
-
-    // PDF files - red
-    if (extension === 'pdf') return '#ef4444'; // red-500
-    
-    // Image files - blue
-    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(extension || '')) {
-      return '#3b82f6'; // blue-500
-    }
-    
-    // Code files - blue
-    if (['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'py', 'java', 'c', 'cpp', 'php'].includes(extension || '')) {
-      return '#3b82f6'; // blue-500
-    }
-    
-    // JSON files - blue
-    if (['json'].includes(extension || '')) return '#3b82f6'; // blue-500
-    
-    // Text/Document files - blue
-    if (['txt', 'md', 'doc', 'docx', 'rtf'].includes(extension || '')) {
-      return '#3b82f6'; // blue-500
-    }
-    
-    // Spreadsheet files - green
-    if (['csv', 'xls', 'xlsx'].includes(extension || '')) return '#22c55e'; // green-500
-    
-    // Archive files - purple
-    if (['zip', 'rar', 'tar', 'gz', '7z'].includes(extension || '')) return '#a855f7'; // purple-500
-    
-    // Audio files - amber
-    if (['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'opus', 'wma', 'amr'].includes(extension || '')) {
-      return '#f59e0b'; // amber-500
-    }
-    
-    // Video files - purple
-    if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(extension || '')) return '#a855f7'; // purple-500
-    
-    // Default - blue
-    return '#3b82f6'; // blue-500
-  };
-
-  const getFileIcon = (filename: string) => {
-    const extension = filename.split('.').pop()?.toLowerCase();
-    
-    // Return appropriate icon character for each file type
-    if (extension === 'pdf') return '📄';
-    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(extension || '')) return '🖼️';
-    if (['js', 'jsx', 'ts', 'tsx'].includes(extension || '')) return '⚛️';
-    if (['html', 'css'].includes(extension || '')) return '🌐';
-    if (['py'].includes(extension || '')) return '🐍';
-    if (['java'].includes(extension || '')) return '☕';
-    if (['json'].includes(extension || '')) return '📋';
-    if (['txt', 'md'].includes(extension || '')) return '📝';
-    if (['csv', 'xls', 'xlsx'].includes(extension || '')) return '📊';
-    if (['zip', 'rar', 'tar', 'gz', '7z'].includes(extension || '')) return '🗜️';
-    if (['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'].includes(extension || '')) return '🎵';
-    if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(extension || '')) return '🎬';
-    
-    return '📄'; // Default file icon
-  };
-
-  const renderFilePreview = (file: any, index: number) => {
-    const isImage = file.isImage || file.type?.startsWith('image/');
-    const fileIsUploading = file.status === 'uploading' || file.status === 'loading' || isUploading;
-    
-    if (isImage && file.publicUrl) {
-      // Image preview - 56px (w-14 h-14 equivalent) with rounded corners
-      return (
-        <View key={file.id} style={styles.imagePreview}>
-                     <Image
-             source={{ uri: file.publicUrl }}
-             style={[
-               styles.imagePreviewImage,
-               { opacity: fileIsUploading ? 0.75 : 1 }
-             ]}
-             resizeMode="cover"
-           />
-           
-           {/* Spinner overlay for uploading images */}
-           {fileIsUploading && (
-            <View style={styles.imageSpinnerOverlay}>
-              <ActivityIndicator size="small" color="#ffffff" />
-            </View>
-          )}
-          
-          {/* Remove button */}
-          <TouchableOpacity
-            style={styles.imageRemoveButton}
-            onPress={() => removeFile(file.id)}
-          >
-            <Text style={styles.imageRemoveText}>×</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-    
-    // Document file preview - macOS style
-    const fileBackgroundColor = getFileBackgroundColor(file.name);
-    const fileIcon = getFileIcon(file.name);
-    const isPdf = file.name?.toLowerCase().endsWith('.pdf');
-    const fileTypeLabel = isPdf ? 'PDF' : 'File';
-    
-    return (
-      <View key={file.id} style={styles.documentPreview}>
-                 {/* File icon with colored background */}
-         <View style={[styles.documentIcon, { backgroundColor: fileBackgroundColor }]}>
-           {fileIsUploading ? (
-             <ActivityIndicator size="small" color="#ffffff" />
-           ) : (
-             <Text style={styles.documentIconText}>{fileIcon}</Text>
-           )}
-        </View>
-        
-        {/* File info */}
-        <View style={styles.documentInfo}>
-          <Text style={styles.documentName} numberOfLines={1}>{file.name}</Text>
-          <Text style={styles.documentType}>{fileTypeLabel}</Text>
-        </View>
-        
-        {/* Remove button - top right corner */}
-        <TouchableOpacity
-          style={styles.documentRemoveButton}
-          onPress={() => removeFile(file.id)}
-        >
-          <Text style={styles.documentRemoveText}>×</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  };
 
   const renderModelSelector = () => (
     <Modal
@@ -663,25 +533,27 @@ export default function ChatInterface({
       {renderNetworkStatus()}
 
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onMenuPress} style={styles.menuButton}>
-          <Menu size={24} color="#ffffff" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.modelSelector}
-          onPress={() => setShowModelSelector(true)}
-        >
-          <Text style={styles.modelSelectorText}>
-            {selectedModel.name} <Text style={styles.modelVersion}>{selectedModel.version}</Text>
-          </Text>
-          <ChevronDown size={16} color="#9ca3af" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.headerButton}>
-          <MoreHorizontal size={20} color="#ffffff" />
-        </TouchableOpacity>
-      </View>
+      {showHeader && (
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onMenuPress} style={styles.menuButton}>
+            <Menu size={24} color="#ffffff" />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.modelSelector}
+            onPress={() => setShowModelSelector(true)}
+          >
+            <Text style={styles.modelSelectorText}>
+              {selectedModel.name} <Text style={styles.modelVersion}>{selectedModel.version}</Text>
+            </Text>
+            <ChevronDown size={16} color="#9ca3af" />
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.headerButton}>
+            <MoreHorizontal size={20} color="#ffffff" />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Main Content */}
       <KeyboardAvoidingView 
@@ -707,95 +579,19 @@ export default function ChatInterface({
 
         {/* Input Area */}
         {showInput && (
-          <View style={styles.inputContainer}>
-            {streamingMessageId && (
-              <TouchableOpacity 
-                style={styles.stopButton}
-                onPress={stopGeneration}
-              >
-                <Text style={styles.stopButtonText}>Stop generating</Text>
-              </TouchableOpacity>
-            )}
-            
-            {/* File Previews */}
-            {files.length > 0 && (
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false}
-                style={styles.filePreviewContainer}
-              >
-                {files.map(renderFilePreview)}
-              </ScrollView>
-            )}
-            
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.textInput}
-                placeholder={isConnected ? "Ask anything..." : "No internet connection"}
-                placeholderTextColor="#6b7280"
-                value={inputText}
-                onChangeText={setInputText}
-                multiline={true}
-                maxLength={4000}
-                editable={!isLoading && isConnected}
-                onSubmitEditing={handleSendMessage}
-                returnKeyType="send"
-              />
-              
-              <View style={styles.buttonRow}>
-                <View style={styles.leftButtons}>
-                  <ToolSelector
-                    onToolChange={handleToolChange}
-                    onStyleSelection={handleStyleSelection}
-                    onShowAuthOverlay={handleShowAuthOverlay}
-                    isLimitedMode={false}
-                    disableTools={false}
-                  />
-                  <TouchableOpacity 
-                    style={styles.iconButton}
-                    onPress={() => {
-                      Alert.alert(
-                        'Upload File',
-                        'Choose what to upload',
-                        [
-                          { text: 'Document', onPress: pickDocument },
-                          { text: 'Image', onPress: pickImage },
-                          { text: 'Cancel', style: 'cancel' }
-                        ]
-                      );
-                    }}
-                  >
-                    <Plus size={24} color="#ffffff" />
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity style={styles.iconButton}>
-                    <Sliders size={24} color="#ffffff" />
-                  </TouchableOpacity>
-                </View>
-                
-                <View style={styles.rightButtons}>
-                  <TouchableOpacity style={styles.iconButton}>
-                    <Mic size={24} color="#ffffff" />
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={[
-                      styles.sendButton,
-                      (!inputText.trim() || isLoading || !isConnected) && styles.sendButtonDisabled
-                    ]}
-                    onPress={handleSendMessage}
-                    disabled={!inputText.trim() || isLoading || !isConnected}
-                  >
-                    {isLoading ? (
-                      <ActivityIndicator size="small" color="#000000" />
-                    ) : (
-                      <Send size={20} color="#000000" />
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </View>
+          <ChatInput
+            onSendMessage={handleSendMessage}
+            placeholder="Ask anything..."
+            disabled={false}
+            isLoading={isLoading}
+            isConnected={isConnected}
+            threadId={threadId}
+            workspaceId={workspaceId}
+            streamingMessageId={streamingMessageId}
+            onStopGeneration={stopGeneration}
+            showAdvancedFeatures={true}
+            maxLength={4000}
+          />
         )}
       </KeyboardAvoidingView>
 
@@ -936,74 +732,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '400',
   },
-  inputContainer: {
-    paddingHorizontal: 12,
-    paddingBottom: 0,
-    paddingTop: 16,
-    backgroundColor: '#000000',
-  },
-  stopButton: {
-    backgroundColor: '#ef4444',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    alignSelf: 'center',
-    marginBottom: 12,
-  },
-  stopButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  inputWrapper: {
-    backgroundColor: '#2d2d2d',
-    borderRadius: 30,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    minHeight: 80,
-  },
-  textInput: {
-    color: '#ffffff',
-    fontSize: 17,
-    fontWeight: '400',
-    paddingVertical: 0,
-    marginBottom: 16,
-    minHeight: 24,
-    maxHeight: 120,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  leftButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  rightButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  iconButton: {
-    width: 24,
-    height: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sendButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#ffffff',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sendButtonDisabled: {
-    backgroundColor: '#6b7280',
-    opacity: 0.5,
-  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1061,110 +789,6 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: '#3b82f6',
-  },
-  filePreviewContainer: {
-    maxHeight: 80,
-    marginBottom: 8,
-  },
-  // Image preview styles (matching w-14 h-14 from web app = 56px)
-  imagePreview: {
-    position: 'relative',
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginHorizontal: 4,
-    borderWidth: 1,
-    borderColor: '#d1d5db', // zinc-300
-  },
-  imagePreviewImage: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-  },
-  imageSpinnerOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-  },
-  imageRemoveButton: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  imageRemoveText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 'bold',
-    lineHeight: 16,
-  },
-  // Document preview styles (matching web app design)
-  documentPreview: {
-    position: 'relative',
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f3f4f6', // zinc-100
-    borderRadius: 16,
-    borderWidth: 0.5,
-    borderColor: 'rgba(209, 213, 219, 0.5)', // zinc-200/50
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    minWidth: 240,
-    marginHorizontal: 4,
-  },
-  documentIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-  documentIconText: {
-    fontSize: 16,
-    color: '#ffffff',
-  },
-  documentInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  documentName: {
-    color: '#111827', // zinc-900
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 0,
-  },
-  documentType: {
-    color: '#6b7280', // zinc-500
-    fontSize: 12,
-  },
-  documentRemoveButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  documentRemoveText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 'bold',
-    lineHeight: 16,
   },
   messageFileAttachments: {
     marginTop: 8,

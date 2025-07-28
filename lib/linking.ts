@@ -64,10 +64,24 @@ export class LinkingManager {
         return true; // Let the appropriate route handle it
       }
       
+      // Check for Universal Link Stripe success callback
+      if (url.includes('/app/stripe-success')) {
+        console.log('🔄 Universal Link Stripe success detected:', params);
+        // This will be handled by the app's routing system
+        return true;
+      }
+      
       // Check if this is a Stripe cancel callback
       if (url.includes('/auth/stripe-cancel')) {
         console.log('🔄 Stripe cancel redirect detected:', params);
         return true; // Let the appropriate route handle it
+      }
+      
+      // Check for Universal Link Stripe cancel callback
+      if (url.includes('/app/stripe-cancel')) {
+        console.log('🔄 Universal Link Stripe cancel detected:', params);
+        // This will be handled by the app's routing system
+        return true;
       }
       
       // Legacy check for direct onboarding URLs (backward compatibility)
@@ -103,3 +117,4 @@ export class LinkingManager {
     return 'artifactapp://auth/callback';
   }
 } 
+

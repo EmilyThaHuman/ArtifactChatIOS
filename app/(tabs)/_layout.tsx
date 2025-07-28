@@ -5,20 +5,24 @@ import { Colors } from '@/constants/Colors';
 export default function TabLayout() {
   return (
     <Tabs
-      screenOptions={{
+      screenOptions={({route}) => ({
         headerShown: false,
-        tabBarStyle: {
-          backgroundColor: Colors.backgroundSecondary,
-          borderTopColor: 'rgba(255, 255, 255, 0.1)',
-          borderTopWidth: 1,
-        },
+        tabBarStyle: 
+          // Hide tab bar for main chat, library, and canvases screens
+          route.name === 'index' || route.name === 'library' || route.name === 'canvases'
+            ? { display: 'none' }
+            : {
+                backgroundColor: Colors.backgroundSecondary,
+                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+                borderTopWidth: 1,
+              },
         tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: Colors.textSecondary,
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: '600',
         },
-      }}
+      })}
     >
       <Tabs.Screen 
         name="index" 
@@ -27,7 +31,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Feather name="message-circle" size={size} color={color} />
           ),
-        }}
+        }} 
       />
       <Tabs.Screen 
         name="library" 
@@ -36,7 +40,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Feather name="image" size={size} color={color} />
           ),
-        }}
+        }} 
       />
       <Tabs.Screen 
         name="canvases" 
@@ -45,7 +49,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Feather name="file-text" size={size} color={color} />
           ),
-        }}
+        }} 
       />
       <Tabs.Screen 
         name="shared" 
@@ -54,7 +58,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Feather name="share-2" size={size} color={color} />
           ),
-        }}
+        }} 
       />
       <Tabs.Screen 
         name="profile" 
@@ -63,7 +67,16 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Feather name="user" size={size} color={color} />
           ),
-        }}
+        }} 
+      />
+      <Tabs.Screen 
+        name="settings" 
+        options={{
+          title: 'Settings',
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="settings" size={size} color={color} />
+          ),
+        }} 
       />
     </Tabs>
   );

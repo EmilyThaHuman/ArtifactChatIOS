@@ -33,17 +33,18 @@ import {
 import { Colors } from '@/constants/Colors';
 import ArtifactLogo from './ArtifactLogo';
 import LoadingSpinner from './LoadingSpinner';
-import NavChatMain from './NavChatMain';
 import NavChatHistory from './NavChatHistory';
 import NavChatUser from './NavChatUser';
+import NavChatWorkspaces from './NavChatWorkspaces';
 
 interface SidebarProps {
   isVisible: boolean;
   onClose: () => void;
-  onNewChat: () => void;
+  onNewChat?: () => void; // Changed from onCreateChat
   onNavigateToLibrary: () => void;
   onNavigateToCanvases: () => void;
   user?: any;
+  profile?: any; // Added profile prop
   currentWorkspace?: any;
   currentThreadId?: string;
   threads?: any[];
@@ -57,7 +58,6 @@ interface SidebarProps {
   onThreadShare?: (threadId: string) => void;
   onThreadClone?: (threadId: string) => void;
   onToggleBookmark?: (threadId: string) => void;
-  onCreateChat?: (workspaceId: string) => void;
   onLogout?: () => void;
   onSettingsOpen?: () => void;
   onProfileOpen?: () => void;
@@ -94,7 +94,6 @@ export function Sidebar({
   onThreadShare,
   onThreadClone,
   onToggleBookmark,
-  onCreateChat,
   onLogout,
   onSettingsOpen,
   onProfileOpen,
@@ -162,15 +161,30 @@ export function Sidebar({
   }, []);
 
   const handleNewChat = useCallback(async () => {
-    if (isCreatingChat || !currentWorkspace) return;
+    console.log('🔄 Sidebar: handleNewChat called', { isCreatingChat, hasOnNewChat: !!onNewChat });
+    
+    if (isCreatingChat) {
+      console.log('🔄 Sidebar: Already creating chat, skipping');
+      return;
+    }
+    
+    if (!onNewChat) {
+      console.error('🔄 Sidebar: No onNewChat prop provided');
+      return;
+    }
     
     setIsCreatingChat(true);
     try {
+      console.log('🔄 Sidebar: Calling onNewChat');
       await onNewChat();
+      console.log('🔄 Sidebar: onNewChat completed successfully');
+    } catch (error) {
+      console.error('🔄 Sidebar: Error in onNewChat:', error);
     } finally {
       setIsCreatingChat(false);
+      console.log('🔄 Sidebar: Chat creation finished');
     }
-  }, [isCreatingChat, currentWorkspace, onNewChat]);
+  }, [isCreatingChat, onNewChat]);
 
   const toggleCollapse = () => {
     setIsCollapsed(!isCollapsed);
@@ -250,17 +264,20 @@ export function Sidebar({
                 <TouchableOpacity
                   style={[
                     styles.navButton,
-                    (!currentWorkspace || isCreatingChat) && styles.navButtonDisabled,
+                    (!onNewChat || isCreatingChat) && styles.navButtonDisabled,
                   ]}
                   onPress={handleNewChat}
-                  disabled={!currentWorkspace || isCreatingChat}
+                  disabled={!onNewChat || isCreatingChat}
+                  activeOpacity={0.7}
                 >
                   {isCreatingChat ? (
                     <LoadingSpinner size={18} color="#ffffff" />
                   ) : (
                     <PenSquare size={18} color="#ffffff" />
                   )}
-                  <Text style={styles.navButtonText}>Chat</Text>
+                  <Text style={styles.navButtonText}>
+                    {isCreatingChat ? 'Creating...' : 'Chat'}
+                  </Text>
                   <Text style={styles.navShortcut}>⌘M</Text>
                 </TouchableOpacity>
 
@@ -286,16 +303,12 @@ export function Sidebar({
 
             {/* Main Content Area - Workspaces and History */}
             <View style={styles.mainContent}>
-              <NavChatMain
-                workspaces={workspaces}
-                currentWorkspace={currentWorkspace}
-                user={user}
-                threads={threads}
-                onWorkspaceSelect={onWorkspaceSelect}
-                onThreadSelect={onThreadSelect}
-                onCreateChat={onCreateChat}
-                isCollapsed={isCollapsed}
-              />
+              {!isCollapsed && (
+                <NavChatWorkspaces
+                  onWorkspaceSelect={onWorkspaceSelect}
+                  currentWorkspaceId={currentWorkspace?.id}
+                />
+              )}
               
               <NavChatHistory
                 threads={threads}

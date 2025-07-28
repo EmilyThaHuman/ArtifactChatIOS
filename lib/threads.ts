@@ -128,6 +128,59 @@ export class ThreadManager {
   }
 
   /**
+   * Get threads that should appear in navigation history
+   * Implements filtering logic similar to the web app
+   */
+  static async getHistoryThreads(limit: number = 50): Promise<Thread[]> {
+    try {
+      const { user } = await AuthManager.getCurrentUser();
+      if (!user) return [];
+
+      console.log('🧵 ThreadManager: Fetching history threads for user:', user.id);
+
+      const { data: threads, error } = await supabase
+        .from('threads')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        console.error('🧵 ThreadManager: Error fetching history threads:', error);
+        return [];
+      }
+
+      if (!threads) return [];
+
+      // Apply the same filtering logic as the web app
+      const filteredThreads = threads.filter(thread => {
+        // Filter out "New Chat" titles
+        if (thread?.title === 'New Chat') return false;
+        
+        // Filter out threads with specific metadata flags
+        if (thread.metadata?.excludeFromNavHistory || thread.metadata?.isScheduledTask) return false;
+        
+        // For team threads, only show if they have been moved to history
+        const isTeamThread = thread.is_team === true;
+        if (isTeamThread) {
+          const hasBeenMovedToHistory = thread.metadata?.moved_to_history_at;
+          return hasBeenMovedToHistory;
+        }
+        
+        // For non-team threads, show them
+        // Note: workspace filtering not implemented in mobile app yet
+        return true;
+      });
+
+      console.log(`🧵 ThreadManager: Filtered ${filteredThreads.length} history threads from ${threads.length} total threads`);
+      return filteredThreads;
+    } catch (error) {
+      console.error('🧵 ThreadManager: Unexpected error fetching history threads:', error);
+      return [];
+    }
+  }
+
+  /**
    * Update thread metadata
    */
   static async updateThread(threadId: string, updates: Partial<Thread>): Promise<boolean> {

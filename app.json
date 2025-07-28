@@ -13,7 +13,11 @@
       "bundleIdentifier": "com.artifact.intelligence",
       "associatedDomains": [
         "applinks:artifact.chat"
-      ]
+      ],
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to let you select images to share in conversations.",
+        "NSCameraUsageDescription": "This app needs access to your camera to let you take photos to share in conversations."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -21,6 +25,11 @@
         "backgroundColor": "#9333ea"
       },
       "package": "com.artifact.intelligence",
+      "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.CAMERA"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",
@@ -53,6 +62,8 @@
       "expo-router", 
       "expo-font", 
       "expo-secure-store",
+      "expo-media-library",
+      "expo-image-picker",
       [
         "@stripe/stripe-react-native",
         {

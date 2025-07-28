@@ -16,11 +16,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Download, Share, X, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import { Colors } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
+import Navbar from '@/components/ui/Navbar';
+import Sidebar from '@/components/ui/Sidebar';
+import { useAuth } from '@/components/auth/AuthHandler';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const imageSize = (screenWidth - 32) / 2 - 8; // 2 columns with padding
@@ -48,6 +52,10 @@ export default function LibraryScreen() {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [deletingImages, setDeletingImages] = useState(new Set<string>());
   const [refreshing, setRefreshing] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
+
+  const router = useRouter();
+  const { user, profile } = useAuth();
 
   // Fetch all user threads and their images using the efficient SQL function
   useEffect(() => {
@@ -145,6 +153,26 @@ export default function LibraryScreen() {
     await loadImages();
     setRefreshing(false);
   }, [loadImages]);
+
+  // Sidebar navigation functions
+  const handleSidebarToggle = () => {
+    setShowSidebar(!showSidebar);
+  };
+
+  const handleNavigateToChat = () => {
+    setShowSidebar(false);
+    router.push('/(tabs)');
+  };
+
+  const handleNavigateToCanvases = () => {
+    setShowSidebar(false);
+    router.push('/(tabs)/canvases');
+  };
+
+  const handleLogout = async () => {
+    setShowSidebar(false);
+    // Handle logout functionality
+  };
 
   // Handle image deletion
   const handleImageDelete = useCallback(
@@ -428,30 +456,53 @@ export default function LibraryScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
+        <Navbar title="Library" onMenuPress={handleSidebarToggle} />
         <View style={styles.loadingContainer}>
           <LoadingSpinner size={32} />
           <Text style={styles.loadingText}>Loading your images...</Text>
         </View>
-      </SafeAreaView>
+        <Sidebar
+          isVisible={showSidebar}
+          onClose={() => setShowSidebar(false)}
+          user={user}
+          profile={profile}
+          onNavigateToChat={handleNavigateToChat}
+          onNavigateToLibrary={() => setShowSidebar(false)}
+          onNavigateToCanvases={handleNavigateToCanvases}
+          onLogout={handleLogout}
+        />
+      </View>
     );
   }
 
   if (generatedImages.length === 0) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
+        <Navbar title="Library" onMenuPress={handleSidebarToggle} />
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyTitle}>No images generated yet</Text>
           <Text style={styles.emptySubtitle}>
             Start generating images in your chats and they'll appear here.
           </Text>
         </View>
-      </SafeAreaView>
+        <Sidebar
+          isVisible={showSidebar}
+          onClose={() => setShowSidebar(false)}
+          user={user}
+          profile={profile}
+          onNavigateToChat={handleNavigateToChat}
+          onNavigateToLibrary={() => setShowSidebar(false)}
+          onNavigateToCanvases={handleNavigateToCanvases}
+          onLogout={handleLogout}
+        />
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
+      <Navbar title="Library" onMenuPress={handleSidebarToggle} />
       <FlatList
         data={generatedImages}
         renderItem={renderImageItem}
@@ -468,23 +519,34 @@ export default function LibraryScreen() {
         }
       />
       {renderCarousel()}
-    </SafeAreaView>
+      <Sidebar
+        isVisible={showSidebar}
+        onClose={() => setShowSidebar(false)}
+        user={user}
+        profile={profile}
+        onNavigateToChat={handleNavigateToChat}
+        onNavigateToLibrary={() => setShowSidebar(false)}
+        onNavigateToCanvases={handleNavigateToCanvases}
+        onLogout={handleLogout}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#000000', // Match main chat interface
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 16,
+    backgroundColor: '#000000',
   },
   loadingText: {
-    color: Colors.textSecondary,
+    color: Colors.textLight,
     fontSize: 16,
   },
   emptyContainer: {
@@ -492,11 +554,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 32,
+    backgroundColor: '#000000',
   },
   emptyTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: Colors.text,
+    color: Colors.textLight,
     marginBottom: 8,
     textAlign: 'center',
   },
@@ -508,6 +571,7 @@ const styles = StyleSheet.create({
   },
   grid: {
     padding: 16,
+    backgroundColor: '#000000',
   },
   imageContainer: {
     width: imageSize,
@@ -516,8 +580,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: Colors.backgroundSecondary,
+    backgroundColor: '#1a1a1a', // Dark secondary background
     position: 'relative',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)', // Subtle border
   },
   image: {
     width: '100%',
@@ -530,10 +596,12 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)', // More opaque for better contrast
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   imageActions: {
     position: 'absolute',
@@ -548,16 +616,20 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  // Carousel Styles
+  // Carousel Styles - Match dark theme
   carouselContainer: {
     flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)', // Darker overlay
   },
   carouselOverlay: {
     flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
   },
   carouselHeader: {
     flexDirection: 'row',
@@ -565,6 +637,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     paddingTop: Platform.OS === 'ios' ? 50 : 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
   },
   carouselCloseButton: {
     padding: 8,
@@ -597,6 +670,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+    backgroundColor: '#000000',
   },
   carouselImage: {
     width: screenWidth - 32,
@@ -610,10 +684,12 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   carouselNavLeft: {
     left: 16,
@@ -626,6 +702,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 32,
     gap: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
   },
   carouselCounter: {
     color: Colors.textSecondary,
@@ -642,7 +719,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
   },
   carouselDotActive: {
-    backgroundColor: Colors.textLight,
+    backgroundColor: Colors.primary, // Use brand purple
     transform: [{ scale: 1.25 }],
   },
 }); 
