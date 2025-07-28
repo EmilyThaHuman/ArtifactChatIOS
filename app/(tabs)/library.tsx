@@ -524,7 +524,6 @@ export default function LibraryScreen() {
         onClose={() => setShowSidebar(false)}
         user={user}
         profile={profile}
-        onNavigateToChat={handleNavigateToChat}
         onNavigateToLibrary={() => setShowSidebar(false)}
         onNavigateToCanvases={handleNavigateToCanvases}
         onLogout={handleLogout}
@@ -536,14 +535,14 @@ export default function LibraryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000', // Match main chat interface
+    backgroundColor: '#161618', // Match main chat interface
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 16,
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
   },
   loadingText: {
     color: Colors.textLight,
@@ -554,7 +553,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 32,
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
   },
   emptyTitle: {
     fontSize: 20,
@@ -571,7 +570,7 @@ const styles = StyleSheet.create({
   },
   grid: {
     padding: 16,
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
   },
   imageContainer: {
     width: imageSize,
@@ -670,7 +669,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
   },
   carouselImage: {
     width: screenWidth - 32,

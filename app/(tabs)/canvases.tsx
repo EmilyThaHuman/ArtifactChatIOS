@@ -622,7 +622,6 @@ export default function CanvasesScreen() {
         onClose={() => setShowSidebar(false)}
         user={user}
         profile={profile}
-        onNavigateToChat={handleNavigateToChat}
         onNavigateToLibrary={handleNavigateToLibrary}
         onNavigateToCanvases={() => setShowSidebar(false)}
         onLogout={handleLogout}
@@ -634,14 +633,14 @@ export default function CanvasesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000', // Match main chat interface
+    backgroundColor: '#161618', // Match main chat interface
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 16,
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
   },
   loadingText: {
     color: Colors.textLight,
@@ -650,7 +649,7 @@ const styles = StyleSheet.create({
   statsContainer: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
   },
   statsText: {
     color: Colors.textSecondary,
@@ -659,7 +658,7 @@ const styles = StyleSheet.create({
   listContainer: {
     padding: 16,
     gap: 16,
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
   },
   canvasCard: {
     padding: 16,
@@ -737,7 +736,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 16,
     gap: 8,
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
   },
   loadingMoreText: {
     color: Colors.textSecondary,
@@ -749,7 +748,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 32,
     paddingVertical: 64,
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
   },
   emptyTitle: {
     fontSize: 20,

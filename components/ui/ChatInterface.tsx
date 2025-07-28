@@ -33,10 +33,21 @@ import { useFileUpload } from '@/lib/content';
 import { FileAttachments } from '@/components/content/FileAttachments';
 import { ToolSelector } from '@/components/ui/ToolSelector';
 import { OpenAIIcon } from '@/components/ui/OpenAIIcon';
+import { 
+  ClaudeIcon,
+  CohereIcon,
+  DeepSeekIcon,
+  GeminiIcon,
+  GroqIcon,
+  GrokIcon,
+  MistralIcon,
+  PerplexityIcon,
+  OpenRouterIcon,
+} from '@/components/ui/icons';
 import { ActionButtons } from '@/components/ui/ActionButtons';
 import { ProviderAvatar } from '@/components/ui/ProviderAvatar';
 import ChatInput from '@/components/ui/ChatInput';
-import { OPENAI_MODEL_INFO, MODEL_CATEGORY_COLORS, ModelInfo } from '@/constants/Models';
+import { ALL_MODELS, MODEL_CATEGORY_COLORS, ModelInfo } from '@/constants/Models';
 
 interface ChatInterfaceProps {
   onMenuPress: () => void;
@@ -59,9 +70,10 @@ interface ModelOption {
   model: string;
   description: string;
   category?: string;
+  provider: string;
 }
 
-const modelOptions: ModelOption[] = OPENAI_MODEL_INFO.map(model => ({
+const modelOptions: ModelOption[] = ALL_MODELS.map((model: ModelInfo) => ({
   id: model.id,
   name: model.name,
   version: model.version,
@@ -69,6 +81,7 @@ const modelOptions: ModelOption[] = OPENAI_MODEL_INFO.map(model => ({
   model: model.model,
   description: model.description,
   category: model.category,
+  provider: model.provider,
 }));
 
 const suggestionCards = [
@@ -105,6 +118,7 @@ export default function ChatInterface({
     streamingMessageId,
     sendMessage,
     stopGeneration,
+    switchModel,
   } = useChat({
     threadId,
     workspaceId,
@@ -240,8 +254,8 @@ export default function ChatInterface({
     Alert.alert('Canvas', 'Canvas view will be implemented in a future update');
   }, []);
 
-  const handleSendMessage = async (content: string, files?: any[]) => {
-    await sendMessage(content, files);
+  const handleSendMessage = async (content: string, files?: any[], toolChoice?: { toolId: string; toolName: string } | null) => {
+    await sendMessage(content, files, toolChoice);
   };
 
   const handleSuggestionPress = (suggestion: string) => {
@@ -249,9 +263,28 @@ export default function ChatInterface({
     handleSendMessage(suggestion);
   };
 
-  const handleModelSelect = (model: ModelOption) => {
-    setSelectedModel(model);
-    setShowModelSelector(false);
+  const handleModelSelect = async (model: ModelOption) => {
+    try {
+      // Show the new model immediately for better UX
+      setSelectedModel(model);
+      setShowModelSelector(false);
+      
+      // Update the assistant in the database
+      console.log(`🔄 [ChatInterface] Switching model to: ${model.model}`);
+      const success = await switchModel(model.model);
+      
+      if (!success) {
+        // Revert the selection if the update failed
+        console.log(`❌ [ChatInterface] Failed to switch model, reverting selection`);
+        // We could revert here, but for now we'll keep the optimistic update
+        Alert.alert('Error', 'Failed to update model. Please try again.');
+      } else {
+        console.log(`✅ [ChatInterface] Successfully switched to model: ${model.name}`);
+      }
+    } catch (error: any) {
+      console.error('❌ [ChatInterface] Error in handleModelSelect:', error);
+      Alert.alert('Error', `Failed to switch model: ${error.message}`);
+    }
   };
 
   const handleCopyMessage = (content: string) => {
@@ -259,61 +292,110 @@ export default function ChatInterface({
     console.log('Copy message:', content);
   };
 
+  const getProviderIcon = (provider: string, size: number = 20) => {
+    switch (provider) {
+      case 'openai':
+        return <OpenAIIcon size={size} color="#ffffff" />;
+      case 'anthropic':
+        return <ClaudeIcon size={size} />;
+      case 'google':
+        return <GeminiIcon size={size} />;
+      case 'cohere':
+        return <CohereIcon size={size} />;
+      case 'deepseek':
+        return <DeepSeekIcon size={size} />;
+      case 'groq':
+        return <GroqIcon size={size} color="#ffffff" />;
+      case 'xai':
+        return <GrokIcon size={size} color="#ffffff" />;
+      case 'mistral':
+        return <MistralIcon size={size} />;
+      case 'perplexity':
+        return <PerplexityIcon size={size} />;
+      case 'openrouter':
+        return <OpenRouterIcon size={size} color="#ffffff" />;
+      default:
+        return <OpenAIIcon size={size} color="#ffffff" />;
+    }
+  };
+
   const markdownStyles = {
     body: {
       color: '#ffffff',
       fontSize: 16,
-      lineHeight: 22,
+      lineHeight: 24,
+      backgroundColor: 'transparent',
+    },
+    paragraph: {
+      color: '#ffffff',
+      fontSize: 16,
+      lineHeight: 24,
+      marginBottom: 8,
+    },
+    text: {
+      color: '#ffffff',
+      fontSize: 16,
+      lineHeight: 24,
     },
     code_inline: {
       backgroundColor: '#374151',
-      color: '#f3f4f6',
-      paddingHorizontal: 4,
-      paddingVertical: 2,
+      color: '#e5e7eb',
+      paddingHorizontal: 6,
+      paddingVertical: 3,
       borderRadius: 4,
       fontSize: 14,
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     },
     code_block: {
       backgroundColor: '#1f2937',
-      color: '#f3f4f6',
-      padding: 12,
+      color: '#e5e7eb',
+      padding: 16,
       borderRadius: 8,
       fontSize: 14,
       fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+      marginVertical: 8,
     },
     fence: {
       backgroundColor: '#1f2937',
-      color: '#f3f4f6',
-      padding: 12,
+      color: '#e5e7eb',
+      padding: 16,
       borderRadius: 8,
       fontSize: 14,
       fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+      marginVertical: 8,
     },
     blockquote: {
-      backgroundColor: '#374151',
+      backgroundColor: 'rgba(55, 65, 81, 0.3)',
       borderLeftWidth: 4,
       borderLeftColor: '#8b5cf6',
-      paddingLeft: 12,
-      paddingVertical: 8,
+      paddingLeft: 16,
+      paddingVertical: 12,
       marginVertical: 8,
+      borderRadius: 4,
     },
     heading1: {
       color: '#ffffff',
       fontSize: 24,
       fontWeight: 'bold',
-      marginVertical: 8,
+      marginTop: 16,
+      marginBottom: 8,
+      lineHeight: 32,
     },
     heading2: {
       color: '#ffffff',
       fontSize: 20,
-      fontWeight: 'bold',
-      marginVertical: 6,
+      fontWeight: '600',
+      marginTop: 12,
+      marginBottom: 6,
+      lineHeight: 28,
     },
     heading3: {
       color: '#ffffff',
       fontSize: 18,
-      fontWeight: 'bold',
-      marginVertical: 4,
+      fontWeight: '600',
+      marginTop: 8,
+      marginBottom: 4,
+      lineHeight: 24,
     },
     link: {
       color: '#60a5fa',
@@ -322,12 +404,16 @@ export default function ChatInterface({
     list_item: {
       color: '#ffffff',
       marginVertical: 2,
+      fontSize: 16,
+      lineHeight: 24,
     },
     bullet_list: {
-      marginVertical: 4,
+      marginVertical: 8,
+      paddingLeft: 16,
     },
     ordered_list: {
-      marginVertical: 4,
+      marginVertical: 8,
+      paddingLeft: 16,
     },
   };
 
@@ -337,9 +423,9 @@ export default function ChatInterface({
     const hasToolCalls = message.tool_calls && Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
     const hasFileAttachments = message.files && message.files.length > 0;
     
-         // Check previous message for tool data context
-     const previousMessage = index > 0 ? messages[index - 1] : null;
-     const previousMessageHasToolData = false; // Placeholder for now
+    // Check previous message for tool data context
+    const previousMessage = index > 0 ? messages[index - 1] : null;
+    const previousMessageHasToolData = false; // Placeholder for now
 
     // Check if this message should show buttons
     const showButtons = activeMessageButtons === message.id;
@@ -349,15 +435,13 @@ export default function ChatInterface({
         key={message.id} 
         style={[
           styles.messageContainer,
-          isUser && styles.userMessageContainer,
-          !isUser && styles.assistantMessageContainer,
+          isUser ? styles.userMessageContainer : styles.assistantMessageContainer,
           !isUser && !isStreaming && styles.assistantMessageWithSpacing,
-          (message.webSearchData || message.imageData || message.canvasData) && styles.messageContainerWithToolData
         ]}
         onTouchStart={() => setActiveMessageButtons(message.id)}
         onTouchEnd={() => setTimeout(() => setActiveMessageButtons(null), 3000)}
       >
-        {/* Assistant message container with avatar */}
+        {/* Assistant message layout - full width, no background */}
         {!isUser && (
           <View style={styles.assistantMessageLayout}>
             {/* Provider Avatar for assistant messages */}
@@ -370,13 +454,10 @@ export default function ChatInterface({
               />
             </View>
 
-            {/* Message content wrapper */}
+            {/* Message content wrapper - full width */}
             <View style={styles.assistantMessageContent}>
-              <View style={[
-                styles.messageBubble,
-                styles.assistantMessageBubble,
-                hasToolCalls && styles.assistantMessageBubbleWithTools
-              ]}>
+              {/* No background bubble for assistant messages - content renders directly */}
+              <View style={styles.assistantMessageText}>
                 <Markdown style={markdownStyles}>
                   {message.content}
                 </Markdown>
@@ -396,38 +477,38 @@ export default function ChatInterface({
                 )}
               </View>
 
-                             {/* Action buttons for assistant messages */}
-               <ActionButtons
-                 isUser={false}
-                 hasToolCalls={hasToolCalls}
-                 hasCompletedToolCalls={hasToolCalls}
-                 effectiveIsStreaming={isStreaming}
-                 showButtons={showButtons}
-                 displayContent={message.content}
-                 message={message}
-                 content={message.content}
-                 handleModelSwitchAndRerun={async () => await handleModelRerun(message.id, message.content)}
-                                   handleShareClick={() => handleShareMessage(message)}
-                  firecrawlSearchData={undefined}
-                  onSourcesClick={handleSourcesClick}
-                  hasFileAttachments={hasFileAttachments}
-                  dalleImageData={undefined}
-                  onImageClick={handleImageClick}
-                  canvasData={undefined}
-                  onCanvasClick={handleCanvasClick}
-                 previousMessageHasDeepResearch={false}
-                 previousMessageFirecrawlData={undefined}
-                 previousMessageImageData={undefined}
-                 previousMessageCanvasData={undefined}
-               />
+              {/* Action buttons for assistant messages */}
+              <ActionButtons
+                isUser={false}
+                hasToolCalls={hasToolCalls}
+                hasCompletedToolCalls={hasToolCalls}
+                effectiveIsStreaming={isStreaming}
+                showButtons={showButtons}
+                displayContent={message.content}
+                message={message}
+                content={message.content}
+                handleModelSwitchAndRerun={async () => await handleModelRerun(message.id, message.content)}
+                handleShareClick={() => handleShareMessage(message)}
+                firecrawlSearchData={undefined}
+                onSourcesClick={handleSourcesClick}
+                hasFileAttachments={hasFileAttachments}
+                dalleImageData={undefined}
+                onImageClick={handleImageClick}
+                canvasData={undefined}
+                onCanvasClick={handleCanvasClick}
+                previousMessageHasDeepResearch={false}
+                previousMessageFirecrawlData={undefined}
+                previousMessageImageData={undefined}
+                previousMessageCanvasData={undefined}
+              />
             </View>
           </View>
         )}
 
-        {/* User message container */}
+        {/* User message container - bubble style */}
         {isUser && (
           <View style={styles.userMessageLayout}>
-            <View style={[styles.messageBubble, styles.userMessageBubble]}>
+            <View style={styles.userMessageBubble}>
               <Text style={styles.userMessageText}>
                 {message.content}
               </Text>
@@ -491,26 +572,33 @@ export default function ChatInterface({
       >
         <View style={styles.modelSelectorContainer}>
           <Text style={styles.modelSelectorTitle}>Choose Model</Text>
-          {modelOptions.map((model) => (
-            <TouchableOpacity
-              key={model.id}
-              style={[
-                styles.modelOption,
-                selectedModel.id === model.id && styles.selectedModelOption
-              ]}
-              onPress={() => handleModelSelect(model)}
-            >
-              <View style={styles.modelIcon}>
-                <OpenAIIcon size={20} color="#ffffff" />
-              </View>
-                            <View style={styles.modelInfo}>
-                <Text style={styles.modelName}>{model.name}</Text>
-              </View>
-              {selectedModel.id === model.id && (
-                <View style={styles.selectedIndicator} />
-              )}
-            </TouchableOpacity>
-          ))}
+          <ScrollView 
+            style={styles.modelOptionsScroll}
+            showsVerticalScrollIndicator={true}
+            contentContainerStyle={styles.modelOptionsContent}
+          >
+            {modelOptions.map((model) => (
+              <TouchableOpacity
+                key={model.id}
+                style={[
+                  styles.modelOption,
+                  selectedModel.id === model.id && styles.selectedModelOption
+                ]}
+                onPress={() => handleModelSelect(model)}
+              >
+                <View style={styles.modelIcon}>
+                  {getProviderIcon(model.provider, 20)}
+                </View>
+                <View style={styles.modelInfo}>
+                  <Text style={styles.modelName}>{model.name}</Text>
+                  <Text style={styles.modelProvider}>{model.provider}</Text>
+                </View>
+                {selectedModel.id === model.id && (
+                  <View style={styles.selectedIndicator} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
       </TouchableOpacity>
     </Modal>
@@ -604,7 +692,7 @@ export default function ChatInterface({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
   },
   networkStatusBar: {
     flexDirection: 'row',
@@ -660,11 +748,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   messagesContent: {
-    padding: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 16,
     flexGrow: 1,
+    width: '100%',
+    maxWidth: 1024, // Max width matching web app
+    alignSelf: 'center',
   },
   messageContainer: {
-    marginVertical: 8,
+    width: '100%',
+    marginVertical: 4,
   },
   messageBubble: {
     maxWidth: '85%',
@@ -744,8 +837,15 @@ const styles = StyleSheet.create({
     padding: 16,
     margin: 20,
     minWidth: 280,
+    maxHeight: '70%',
     borderWidth: 1,
     borderColor: '#525252',
+  },
+  modelOptionsScroll: {
+    maxHeight: 400,
+  },
+  modelOptionsContent: {
+    paddingBottom: 8,
   },
   modelSelectorTitle: {
     color: '#ffffff',
@@ -784,6 +884,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
+  modelProvider: {
+    color: '#9ca3af',
+    fontSize: 12,
+    fontWeight: '400',
+    textTransform: 'capitalize',
+  },
   selectedIndicator: {
     width: 8,
     height: 8,
@@ -801,48 +907,50 @@ const styles = StyleSheet.create({
   assistantMessageContainer: {
     marginVertical: 8,
     justifyContent: 'flex-start',
+    width: '100%',
   },
   assistantMessageWithSpacing: {
     marginBottom: 16,
   },
-  messageContainerWithToolData: {
-    marginBottom: 24,
-  },
   assistantMessageLayout: {
     flexDirection: 'row',
-    maxWidth: '85%',
+    width: '100%',
     alignItems: 'flex-start',
+    paddingLeft: 8,
+    paddingRight: 8,
   },
   providerAvatarContainer: {
-    marginRight: 8,
+    marginRight: 12,
     marginTop: 4,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1f2937',
   },
   assistantMessageContent: {
     flex: 1,
-    position: 'relative',
+    width: '100%',
   },
-  assistantMessageBubble: {
-    backgroundColor: '#1f2937',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  assistantMessageBubbleWithTools: {
+  assistantMessageText: {
     backgroundColor: 'transparent',
-    borderRadius: 20,
+    paddingVertical: 4,
     paddingHorizontal: 0,
-    paddingVertical: 0,
+    width: '100%',
   },
   userMessageLayout: {
     alignItems: 'flex-end',
-    position: 'relative',
+    justifyContent: 'flex-end',
+    width: '100%',
+    paddingHorizontal: 16,
   },
   userMessageBubble: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#2A2A2D',
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    maxWidth: '70%',
-    marginLeft: '30%',
+    maxWidth: '85%',
+    alignSelf: 'flex-end',
   },
 }); 

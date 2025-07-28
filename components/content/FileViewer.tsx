@@ -80,7 +80,7 @@ export function FileViewer({ isOpen, onClose, file }: FileViewerProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
   },
   header: {
     flexDirection: 'row',

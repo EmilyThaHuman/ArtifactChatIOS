@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,26 +8,123 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { X, Users, Plus } from 'lucide-react-native';
+import { X, Plus, Settings, Unlink, Save } from 'lucide-react-native';
 import { Colors } from '@/constants/Colors';
+import { useAssistantStore } from '@/lib/assistantStore';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/components/auth/AuthHandler';
+import { ProviderAvatar } from '@/components/ui/ProviderAvatar';
+
+interface AssistantCardProps {
+  assistant: any;
+  isWorkspaceAssistant: boolean;
+  isExpanded: boolean;
+  onSettingsClick: (assistant: any) => void;
+  onAssistantAction: (assistantId: string, action: 'attach' | 'detach') => void;
+  isTransitioning?: boolean;
+  transitionType?: string | null;
+}
+
+function AssistantCard({
+  assistant,
+  isWorkspaceAssistant,
+  isExpanded,
+  onSettingsClick,
+  onAssistantAction,
+  isTransitioning = false,
+  transitionType = null,
+}: AssistantCardProps) {
+  const getActionButtonContent = () => {
+    if (isTransitioning) {
+      return <ActivityIndicator size="small" color="#ffffff" />;
+    }
+
+    return isWorkspaceAssistant ? (
+      <Unlink size={16} color="#dc2626" />
+    ) : (
+      <Plus size={16} color="#ffffff" />
+    );
+  };
+
+  return (
+    <View
+      style={[
+        styles.assistantCard,
+        isTransitioning && styles.assistantCardTransitioning,
+      ]}
+    >
+      <View style={styles.cardContent}>
+        <View style={styles.assistantInfo}>
+          <View style={styles.avatarContainer}>
+            {assistant?.avatar_url ? (
+              <Image 
+                source={{ uri: assistant.avatar_url }}
+                style={styles.avatarImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <ProviderAvatar
+                message={{ assistant_id: assistant?.id }}
+                isStreaming={false}
+                hasContent={true}
+                size={32}
+              />
+            )}
+          </View>
+          
+          <View style={styles.assistantDetails}>
+            <Text style={styles.assistantName}>
+              {assistant?.name || 'Unnamed Assistant'}
+            </Text>
+            <Text style={styles.assistantModel}>
+              {assistant?.model || 'gpt-4o-mini'}
+              {isTransitioning && (
+                <Text style={styles.transitionText}>
+                  {transitionType === 'attach' ? ' • Attaching...' : ' • Detaching...'}
+                </Text>
+              )}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.actionButtons}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.settingsButton]}
+            onPress={() => onSettingsClick(assistant)}
+            disabled={isTransitioning}
+          >
+            <Settings size={16} color="#60a5fa" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              isWorkspaceAssistant ? styles.detachButton : styles.attachButton,
+              isTransitioning && styles.actionButtonDisabled,
+            ]}
+            onPress={() =>
+              onAssistantAction(
+                assistant.id,
+                isWorkspaceAssistant ? 'detach' : 'attach',
+              )
+            }
+            disabled={isTransitioning}
+          >
+            {getActionButtonContent()}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
 
 interface AssistantManagementDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   workspaceId: string;
-  onAssistantAction?: (assistantId: string, action: 'attach' | 'detach') => void;
-}
-
-interface Assistant {
-  id: string;
-  name: string;
-  description?: string;
-  instructions?: string;
-  metadata?: any;
+  onAssistantAction: (assistantId: string, action: 'attach' | 'detach') => void;
+  onSettingsClick?: (assistant: any) => void;
 }
 
 export default function AssistantManagementDialog({
@@ -35,176 +132,369 @@ export default function AssistantManagementDialog({
   onOpenChange,
   workspaceId,
   onAssistantAction,
+  onSettingsClick,
 }: AssistantManagementDialogProps) {
-  const [assistants, setAssistants] = useState<Assistant[]>([]);
-  const [workspaceAssistants, setWorkspaceAssistants] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isProcessing, setIsProcessing] = useState<string | null>(null);
-  const { user } = useAuth();
+  const [expandedAssistantId, setExpandedAssistantId] = useState<string | null>(null);
+  const [workspaceAssistants, setWorkspaceAssistants] = useState<any[]>([]);
+  const [availableAssistants, setAvailableAssistants] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [transitioningAssistants, setTransitioningAssistants] = useState<Set<string>>(new Set());
+  const [transitionTypes, setTransitionTypes] = useState<Map<string, string>>(new Map());
 
+  const {
+    assistants,
+    initializeAssistants,
+    isLoading: assistantsLoading,
+  } = useAssistantStore();
+
+  // Fetch assistants when dialog opens
   useEffect(() => {
-    if (open) {
-      loadAssistants();
-    }
-  }, [open, workspaceId]);
+    const fetchAssistants = async () => {
+      if (!open || !workspaceId) return;
 
-  const loadAssistants = async () => {
-    try {
       setIsLoading(true);
 
-      // Load user's assistants
-      const { data: userAssistants, error: assistantsError } = await supabase
-        .from('assistants')
-        .select('*')
-        .eq('user_id', user?.id);
+      try {
+        console.log(
+          `[AssistantManagementDialog] Fetching assistants for workspace: ${workspaceId}`,
+        );
 
-      if (assistantsError) throw assistantsError;
+        // Initialize assistants if not already done
+        if (!assistants || assistants.length === 0) {
+          await initializeAssistants();
+        }
 
-      // Load workspace assistant IDs
-      const { data: workspace, error: workspaceError } = await supabase
-        .from('workspaces')
-        .select('workspace_assistants')
-        .eq('id', workspaceId)
-        .single();
+        // Fetch workspace data to get workspace_assistants array
+        console.log(`[AssistantManagementDialog] Fetching workspace data...`);
+        const { data: workspace, error: workspaceError } = await supabase
+          .from("workspaces")
+          .select("workspace_assistants")
+          .eq("id", workspaceId)
+          .single();
 
-      if (workspaceError) throw workspaceError;
+        if (workspaceError) {
+          console.error("❌ Error fetching workspace:", {
+            error: workspaceError,
+            workspaceId,
+            code: workspaceError.code,
+            message: workspaceError.message,
+            details: workspaceError.details,
+          });
 
-      setAssistants(userAssistants || []);
-      setWorkspaceAssistants(workspace?.workspace_assistants || []);
-    } catch (error) {
-      console.error('Error loading assistants:', error);
-      Alert.alert('Error', 'Failed to load assistants');
-    } finally {
-      setIsLoading(false);
+          setWorkspaceAssistants([]);
+          setAvailableAssistants([]);
+          return;
+        }
+
+        console.log(`[AssistantManagementDialog] Workspace data fetched:`, {
+          workspaceId,
+          assistantCount: workspace?.workspace_assistants?.length || 0,
+          assistants: workspace?.workspace_assistants,
+        });
+
+        const workspaceAssistantIds = workspace?.workspace_assistants || [];
+
+        // Fetch workspace assistants
+        if (workspaceAssistantIds.length > 0) {
+          console.log(
+            `[AssistantManagementDialog] Fetching ${workspaceAssistantIds.length} workspace assistants...`,
+          );
+          const { data: fetchedWorkspaceAssistants, error } = await supabase
+            .from("assistants")
+            .select("*")
+            .in("id", workspaceAssistantIds);
+
+          if (error) {
+            console.error("❌ Error fetching workspace assistants:", error);
+            setWorkspaceAssistants([]);
+          } else {
+            console.log(
+              `[AssistantManagementDialog] Fetched ${fetchedWorkspaceAssistants?.length || 0} workspace assistants`,
+            );
+            const assistantsWithTools = (fetchedWorkspaceAssistants || []).map(
+              (assistant) => assistant,
+            );
+            setWorkspaceAssistants(assistantsWithTools);
+          }
+        } else {
+          console.log(
+            `[AssistantManagementDialog] No workspace assistants found`,
+          );
+          setWorkspaceAssistants([]);
+        }
+
+        // Get available assistants (all assistants minus workspace assistants)
+        const currentAssistants = useAssistantStore.getState().assistants;
+        const filtered = currentAssistants.filter((assistant) => {
+          return !workspaceAssistantIds.includes(assistant.id);
+        });
+
+        console.log(
+          `[AssistantManagementDialog] Found ${filtered.length} available assistants`,
+        );
+        setAvailableAssistants(filtered);
+      } catch (error) {
+        console.error("❌ Unexpected error fetching assistants:", error);
+        setWorkspaceAssistants([]);
+        setAvailableAssistants([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchAssistants();
+  }, [open, workspaceId, assistants, initializeAssistants]);
+
+  const handleSettingsClick = (assistant: any) => {
+    if (expandedAssistantId === assistant.id) {
+      setExpandedAssistantId(null);
+    } else {
+      setExpandedAssistantId(assistant.id);
     }
+    onSettingsClick?.(assistant);
   };
 
-  const handleAssistantAction = async (assistantId: string, action: 'attach' | 'detach') => {
-    try {
-      setIsProcessing(assistantId);
+  const handleAssistantAction = useCallback(
+    async (assistantId: string, action: 'attach' | 'detach') => {
+      // Find the assistant in either list
+      const assistant = [...workspaceAssistants, ...availableAssistants].find(
+        (a) => a.id === assistantId,
+      );
 
-      if (onAssistantAction) {
-        await onAssistantAction(assistantId, action);
+      if (!assistant) {
+        console.error("❌ Assistant not found in dialog state:", {
+          assistantId,
+          workspaceCount: workspaceAssistants.length,
+          availableCount: availableAssistants.length,
+        });
+        return;
       }
 
-      // Update local state
+      // Set transitioning state
+      setTransitioningAssistants((prev) => new Set([...prev, assistantId]));
+      setTransitionTypes((prev) => new Map([...prev, [assistantId, action]]));
+
+      // Optimistically update the UI
       if (action === 'attach') {
-        setWorkspaceAssistants(prev => [...prev, assistantId]);
-      } else {
-        setWorkspaceAssistants(prev => prev.filter(id => id !== assistantId));
+        setAvailableAssistants((prev) =>
+          prev.filter((a) => a.id !== assistantId),
+        );
+        setWorkspaceAssistants((prev) => [...prev, assistant]);
+      } else if (action === 'detach') {
+        setWorkspaceAssistants((prev) =>
+          prev.filter((a) => a.id !== assistantId),
+        );
+        setAvailableAssistants((prev) => [...prev, assistant]);
       }
-    } catch (error) {
-      console.error(`Error ${action}ing assistant:`, error);
-      Alert.alert('Error', `Failed to ${action} assistant`);
-    } finally {
-      setIsProcessing(null);
-    }
-  };
 
-  const renderAssistant = (assistant: Assistant) => {
-    const isAttached = workspaceAssistants.includes(assistant.id);
-    const isCurrentlyProcessing = isProcessing === assistant.id;
+      try {
+        // Call the actual action
+        await onAssistantAction(assistantId, action);
 
+        // Success - remove from transitioning after a short delay
+        setTimeout(() => {
+          setTransitioningAssistants((prev) => {
+            const newSet = new Set(prev);
+            newSet.delete(assistantId);
+            return newSet;
+          });
+          setTransitionTypes((prev) => {
+            const newMap = new Map(prev);
+            newMap.delete(assistantId);
+            return newMap;
+          });
+        }, 500);
+      } catch (error) {
+        // Revert optimistic update on error
+        console.error("Assistant action failed:", error);
+
+        if (action === 'attach') {
+          setWorkspaceAssistants((prev) =>
+            prev.filter((a) => a.id !== assistantId),
+          );
+          setAvailableAssistants((prev) => [...prev, assistant]);
+        } else if (action === 'detach') {
+          setAvailableAssistants((prev) =>
+            prev.filter((a) => a.id !== assistantId),
+          );
+          setWorkspaceAssistants((prev) => [...prev, assistant]);
+        }
+
+        // Remove from transitioning
+        setTransitioningAssistants((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(assistantId);
+          return newSet;
+        });
+        setTransitionTypes((prev) => {
+          const newMap = new Map(prev);
+          newMap.delete(assistantId);
+          return newMap;
+        });
+      }
+    },
+    [workspaceAssistants, availableAssistants, onAssistantAction],
+  );
+
+  if (isLoading || assistantsLoading) {
     return (
-      <View key={assistant.id} style={styles.assistantCard}>
-        <View style={styles.assistantInfo}>
-          <View style={styles.assistantAvatar}>
-            <Users size={20} color={Colors.textLight} />
-          </View>
-          <View style={styles.assistantDetails}>
-            <Text style={styles.assistantName}>{assistant.name}</Text>
-            {assistant.description && (
-              <Text style={styles.assistantDescription} numberOfLines={2}>
-                {assistant.description}
-              </Text>
-            )}
+      <Modal
+        visible={open}
+        transparent
+        animationType="fade"
+        onRequestClose={() => onOpenChange(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.header}>
+              <Text style={styles.title}>Manage Project Assistants</Text>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => onOpenChange(false)}
+              >
+                <X size={24} color={Colors.textLight} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#8b5cf6" />
+              <Text style={styles.loadingText}>Loading assistants...</Text>
+            </View>
           </View>
         </View>
-        <TouchableOpacity
-          style={[
-            styles.actionButton,
-            isAttached ? styles.attachedButton : styles.detachedButton
-          ]}
-          onPress={() => handleAssistantAction(assistant.id, isAttached ? 'detach' : 'attach')}
-          disabled={isCurrentlyProcessing}
-          activeOpacity={0.7}
-        >
-          {isCurrentlyProcessing ? (
-            <ActivityIndicator size="small" color={Colors.textLight} />
-          ) : (
-            <Text style={[
-              styles.actionButtonText,
-              isAttached ? styles.attachedButtonText : styles.detachedButtonText
-            ]}>
-              {isAttached ? 'Remove' : 'Add'}
-            </Text>
-          )}
-        </TouchableOpacity>
-      </View>
+      </Modal>
     );
-  };
+  }
 
   return (
     <Modal
       visible={open}
-      animationType="slide"
-      presentationStyle="pageSheet"
+      transparent
+      animationType="fade"
       onRequestClose={() => onOpenChange(false)}
     >
-      <SafeAreaView style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>Assistants</Text>
-          <TouchableOpacity
-            onPress={() => onOpenChange(false)}
-            style={styles.closeButton}
-            activeOpacity={0.7}
-          >
-            <X size={24} color={Colors.textLight} />
-          </TouchableOpacity>
-        </View>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.title}>Manage Project Assistants</Text>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => onOpenChange(false)}
+            >
+              <X size={24} color={Colors.textLight} />
+            </TouchableOpacity>
+          </View>
 
-        {/* Content */}
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {isLoading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={Colors.purple500} />
-              <Text style={styles.loadingText}>Loading assistants...</Text>
-            </View>
-          ) : assistants.length > 0 ? (
-            <View style={styles.assistantsList}>
-              {assistants.map(renderAssistant)}
-            </View>
-          ) : (
-            <View style={styles.emptyContainer}>
-              <View style={styles.emptyIcon}>
-                <Users size={48} color={Colors.textSecondary} />
+          {/* Content */}
+          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+            <Text style={styles.description}>
+              Attach or detach assistants to this workspace. Click the settings icon to configure each assistant.
+            </Text>
+
+            {/* Current Project Assistants Section */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionIndicator} />
+                <Text style={styles.sectionTitle}>
+                  Current Project Assistants
+                </Text>
               </View>
-              <Text style={styles.emptyTitle}>No assistants found</Text>
-              <Text style={styles.emptyDescription}>
-                Create assistants in the main app to add them to this project
-              </Text>
+
+              {workspaceAssistants.length > 0 ? (
+                <View style={styles.assistantsList}>
+                  {workspaceAssistants.map((assistant) => (
+                    <AssistantCard
+                      key={assistant.id}
+                      assistant={assistant}
+                      isWorkspaceAssistant={true}
+                      isExpanded={expandedAssistantId === assistant.id}
+                      onSettingsClick={handleSettingsClick}
+                      onAssistantAction={handleAssistantAction}
+                      isTransitioning={transitioningAssistants.has(assistant.id)}
+                      transitionType={transitionTypes.get(assistant.id)}
+                    />
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyText}>
+                    No assistants attached to this project
+                  </Text>
+                </View>
+              )}
             </View>
-          )}
-        </ScrollView>
-      </SafeAreaView>
+
+            {/* Separator */}
+            <View style={styles.separator}>
+              <View style={styles.separatorLine} />
+              <Text style={styles.separatorText}>Available Assistants</Text>
+              <View style={styles.separatorLine} />
+            </View>
+
+            {/* Available Assistants Section */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <View style={[styles.sectionIndicator, styles.availableIndicator]} />
+                <Text style={styles.sectionTitle}>
+                  Available Assistants
+                </Text>
+              </View>
+
+              {availableAssistants.length > 0 ? (
+                <View style={styles.assistantsList}>
+                  {availableAssistants.map((assistant) => (
+                    <AssistantCard
+                      key={assistant.id}
+                      assistant={assistant}
+                      isWorkspaceAssistant={false}
+                      isExpanded={expandedAssistantId === assistant.id}
+                      onSettingsClick={handleSettingsClick}
+                      onAssistantAction={handleAssistantAction}
+                      isTransitioning={transitioningAssistants.has(assistant.id)}
+                      transitionType={transitionTypes.get(assistant.id)}
+                    />
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyText}>
+                    No additional assistants available
+                  </Text>
+                </View>
+              )}
+            </View>
+          </ScrollView>
+        </View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  modalOverlay: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    backgroundColor: '#161618',
+    borderRadius: 16,
+    margin: 20,
+    maxHeight: '80%',
+    width: '90%',
+    maxWidth: 600,
+    borderWidth: 1,
+    borderColor: '#374151',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: '#374151',
   },
   title: {
     color: Colors.textLight,
@@ -212,55 +502,91 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   closeButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
+    padding: 4,
   },
   loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+    padding: 40,
     alignItems: 'center',
-    paddingVertical: 48,
+    justifyContent: 'center',
   },
   loadingText: {
     color: Colors.textSecondary,
     fontSize: 16,
     marginTop: 16,
   },
+  content: {
+    maxHeight: 500,
+  },
+  description: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    margin: 20,
+    marginBottom: 24,
+  },
+  section: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  sectionIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#8b5cf6',
+  },
+  availableIndicator: {
+    backgroundColor: '#06b6d4',
+  },
+  sectionTitle: {
+    color: Colors.textLight,
+    fontSize: 16,
+    fontWeight: '600',
+    flex: 1,
+  },
+
   assistantsList: {
-    paddingVertical: 16,
+    gap: 12,
   },
   assistantCard: {
+    backgroundColor: '#1f2937',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#374151',
+    overflow: 'hidden',
+  },
+  assistantCardTransitioning: {
+    opacity: 0.6,
+  },
+  cardContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 16,
     padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   assistantInfo: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+    gap: 12,
   },
-  assistantAvatar: {
+  avatarContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: Colors.purple500,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(139, 92, 246, 0.3)',
+  },
+  avatarImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    margin: 2,
   },
   assistantDetails: {
     flex: 1,
@@ -271,63 +597,72 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 4,
   },
-  assistantDescription: {
+  assistantModel: {
     color: Colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 12,
+    fontWeight: '400',
+  },
+  transitionText: {
+    color: '#60a5fa',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 8,
   },
   actionButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  attachedButton: {
-    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-  },
-  detachedButton: {
-    backgroundColor: 'rgba(147, 51, 234, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(147, 51, 234, 0.3)',
-  },
-  actionButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  attachedButtonText: {
-    color: '#ef4444',
-  },
-  detachedButtonText: {
-    color: Colors.purple500,
-  },
-  emptyContainer: {
-    flex: 1,
+    width: 36,
+    height: 36,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 48,
+    borderWidth: 1,
   },
-  emptyIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    justifyContent: 'center',
+  settingsButton: {
+    backgroundColor: 'transparent',
+    borderColor: '#60a5fa',
+  },
+  attachButton: {
+    backgroundColor: 'transparent',
+    borderColor: '#ffffff',
+  },
+  detachButton: {
+    backgroundColor: 'transparent',
+    borderColor: '#dc2626',
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
+  },
+  emptyState: {
+    padding: 24,
     alignItems: 'center',
-    marginBottom: 24,
+    backgroundColor: '#1f2937',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#374151',
+    borderStyle: 'dashed',
   },
-  emptyTitle: {
-    color: Colors.textLight,
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  emptyDescription: {
+  emptyText: {
     color: Colors.textSecondary,
-    fontSize: 16,
+    fontSize: 14,
     textAlign: 'center',
-    lineHeight: 22,
+  },
+  separator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginVertical: 20,
+  },
+  separatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#374151',
+  },
+  separatorText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#161618',
   },
 }); 

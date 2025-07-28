@@ -1,0 +1,9 @@
+export { default as ClaudeIcon } from './ClaudeIcon';
+export { default as CohereIcon } from './CohereIcon';
+export { default as DeepSeekIcon } from './DeepSeekIcon';
+export { default as GeminiIcon } from './GeminiIcon';
+export { default as GroqIcon } from './GroqIcon';
+export { default as GrokIcon } from './GrokIcon';
+export { default as MistralIcon } from './MistralIcon';
+export { default as PerplexityIcon } from './PerplexityIcon';
+export { default as OpenRouterIcon } from './OpenRouterIcon'; 

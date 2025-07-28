@@ -15,6 +15,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import {
   Search,
   PenSquare,
@@ -36,17 +37,19 @@ import LoadingSpinner from './LoadingSpinner';
 import NavChatHistory from './NavChatHistory';
 import NavChatUser from './NavChatUser';
 import NavChatWorkspaces from './NavChatWorkspaces';
+import { ThreadManager } from '@/lib/threads';
 
 interface SidebarProps {
   isVisible: boolean;
   onClose: () => void;
-  onNewChat?: () => void; // Changed from onCreateChat
+  onNewChat?: () => void;
   onNavigateToLibrary: () => void;
   onNavigateToCanvases: () => void;
   user?: any;
-  profile?: any; // Added profile prop
+  profile?: any;
   currentWorkspace?: any;
-  currentThreadId?: string;
+  currentThreadId?: string; // Optional - we'll get from router if not provided
+  // Thread-related props are now optional since we handle them internally
   threads?: any[];
   workspaces?: any[];
   notifications?: any[];
@@ -82,15 +85,15 @@ export function Sidebar({
   onNavigateToCanvases,
   user,
   currentWorkspace,
-  currentThreadId,
-  threads = [],
+  currentThreadId: propCurrentThreadId,
+  threads: propThreads,
   workspaces = [],
   notifications = [],
   unreadCount = 0,
   onWorkspaceSelect,
-  onThreadSelect,
-  onThreadDelete,
-  onThreadRename,
+  onThreadSelect: propOnThreadSelect,
+  onThreadDelete: propOnThreadDelete,
+  onThreadRename: propOnThreadRename,
   onThreadShare,
   onThreadClone,
   onToggleBookmark,
@@ -100,229 +103,340 @@ export function Sidebar({
   onToggleTheme,
   isDarkTheme = true,
 }: SidebarProps) {
-  const insets = useSafeAreaInsets();
+  // Internal state for threads (self-sufficient)
+  const [internalThreads, setInternalThreads] = useState<any[]>([]);
+  const [threadsLoading, setThreadsLoading] = useState(false);
+  
+  // Use internal threads if parent doesn't provide them
+  const threads = propThreads || internalThreads;
+  
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isSearchMode, setIsSearchMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [isCreatingChat, setIsCreatingChat] = useState(false);
-  const slideAnim = useRef(new Animated.Value(isVisible ? 0 : -SIDEBAR_WIDTH)).current;
+  const [showNotifications, setShowNotifications] = useState(false);
 
-  // Animate sidebar in/out
+  const slideAnim = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
+  const searchInputRef = useRef<TextInput>(null);
+  const safeAreaInsets = useSafeAreaInsets();
+  const router = useRouter();
+
+  // Load threads if parent doesn't provide them
   useEffect(() => {
-    Animated.timing(slideAnim, {
-      toValue: isVisible ? 0 : -SIDEBAR_WIDTH,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-  }, [isVisible, slideAnim]);
-
-  // Handle search
-  const handleSearch = useCallback((query: string) => {
-    setSearchQuery(query);
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
+    if (!propThreads && user) {
+      loadInternalThreads();
     }
+  }, [propThreads, user, isVisible]);
 
-    // Search threads and workspaces
-    const threadResults = threads
-      .filter(thread => 
-        thread.title?.toLowerCase().includes(query.toLowerCase()) ||
-        thread.id?.toLowerCase().includes(query.toLowerCase())
-      )
-      .map(thread => ({
-        id: thread.id,
-        title: thread.title || 'Untitled Chat',
-        type: 'thread' as const,
-      }));
-
-    const workspaceResults = workspaces
-      .filter(workspace =>
-        workspace.name?.toLowerCase().includes(query.toLowerCase())
-      )
-      .map(workspace => ({
-        id: workspace.id,
-        title: workspace.name,
-        type: 'workspace' as const,
-      }));
-
-    setSearchResults([...threadResults, ...workspaceResults].slice(0, 10));
-  }, [threads, workspaces]);
-
-  // Handle keyboard shortcuts (web-like functionality)
-  const handleKeyboardShortcut = useCallback((key: string, metaKey: boolean) => {
-    if (metaKey && key === 'k') {
-      setIsSearchOpen(true);
-    } else if (metaKey && key === 'm') {
-      handleNewChat();
-    }
-  }, []);
-
-  const handleNewChat = useCallback(async () => {
-    console.log('🔄 Sidebar: handleNewChat called', { isCreatingChat, hasOnNewChat: !!onNewChat });
+  const loadInternalThreads = async () => {
+    if (threadsLoading) return;
     
-    if (isCreatingChat) {
-      console.log('🔄 Sidebar: Already creating chat, skipping');
-      return;
-    }
-    
-    if (!onNewChat) {
-      console.error('🔄 Sidebar: No onNewChat prop provided');
-      return;
-    }
-    
-    setIsCreatingChat(true);
     try {
-      console.log('🔄 Sidebar: Calling onNewChat');
-      await onNewChat();
-      console.log('🔄 Sidebar: onNewChat completed successfully');
+      setThreadsLoading(true);
+      console.log('🗂️ Sidebar: Loading threads internally...');
+      
+      const fetchedThreads = await ThreadManager.getHistoryThreads(50);
+      console.log(`🗂️ Sidebar: Loaded ${fetchedThreads.length} threads`);
+      
+      setInternalThreads(fetchedThreads);
     } catch (error) {
-      console.error('🔄 Sidebar: Error in onNewChat:', error);
+      console.error('🗂️ Sidebar: Error loading threads:', error);
+      setInternalThreads([]);
     } finally {
-      setIsCreatingChat(false);
-      console.log('🔄 Sidebar: Chat creation finished');
+      setThreadsLoading(false);
     }
-  }, [isCreatingChat, onNewChat]);
+  };
+
+  // Get current thread ID from router if not provided
+  const getCurrentThreadId = () => {
+    if (propCurrentThreadId) return propCurrentThreadId;
+    
+    // Try to extract from router pathname
+    if (router && router.pathname) {
+      const match = router.pathname.match(/\/conversation\/([^/?]+)/);
+      return match ? match[1] : undefined;
+    }
+    return undefined;
+  };
+
+  const currentThreadId = getCurrentThreadId();
+
+  // Internal thread action handlers
+  const handleInternalThreadSelect = (threadId: string) => {
+    if (propOnThreadSelect) {
+      propOnThreadSelect(threadId);
+    } else {
+      // Navigate to thread using router
+      router.push(`/conversation/${threadId}`);
+      onClose(); // Close sidebar after navigation
+    }
+  };
+
+  const handleInternalThreadDelete = async (threadId: string) => {
+    if (propOnThreadDelete) {
+      propOnThreadDelete(threadId);
+    } else {
+      try {
+        const success = await ThreadManager.deleteThread(threadId);
+        if (success) {
+          // Reload threads after deletion
+          await loadInternalThreads();
+        }
+      } catch (error) {
+        console.error('🗂️ Sidebar: Error deleting thread:', error);
+        Alert.alert('Error', 'Failed to delete thread');
+      }
+    }
+  };
+
+  const handleInternalThreadRename = async (threadId: string, newTitle: string) => {
+    if (propOnThreadRename) {
+      propOnThreadRename(threadId, newTitle);
+    } else {
+      try {
+        const success = await ThreadManager.updateThread(threadId, { title: newTitle });
+        if (success) {
+          // Reload threads after rename
+          await loadInternalThreads();
+        }
+      } catch (error) {
+        console.error('🗂️ Sidebar: Error renaming thread:', error);
+        Alert.alert('Error', 'Failed to rename thread');
+      }
+    }
+  };
+
+  const handleInternalNewChat = () => {
+    if (onNewChat) {
+      onNewChat();
+    } else {
+      // Navigate to main chat page for new chat
+      router.push('/');
+      onClose();
+    }
+  };
+
+  // Animation effects
+  useEffect(() => {
+    if (isVisible) {
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: -SIDEBAR_WIDTH,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isVisible]);
+
+
+
+  const handleSearchSubmit = useCallback(() => {
+    if (searchQuery.trim()) {
+      // Simple search implementation - filter threads by title
+      const results: SearchResult[] = threads
+        .filter(thread => 
+          thread.title.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+        .map(thread => ({
+          id: thread.id,
+          title: thread.title,
+          type: 'thread' as const,
+        }));
+      
+      setSearchResults(results);
+    } else {
+      setSearchResults([]);
+    }
+  }, [searchQuery, threads]);
+
+  const handleSearchResultSelect = (result: SearchResult) => {
+    if (result.type === 'thread') {
+      handleInternalThreadSelect(result.id);
+    }
+    setIsSearchMode(false);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
 
   const toggleCollapse = () => {
     setIsCollapsed(!isCollapsed);
   };
 
-  const handleSearchToggle = () => {
-    setIsSearchOpen(true);
+  const handleNotificationsToggle = () => {
+    setShowNotifications(!showNotifications);
   };
 
-  const handleNotificationsToggle = () => {
-    setIsNotificationsOpen(true);
+  const handleSearchFocus = () => {
+    setIsSearchMode(true);
   };
+
+  const handleSearchBlur = () => {
+    if (!searchQuery.trim()) {
+      setIsSearchMode(false);
+    }
+  };
+
+  const handleSearchCancel = () => {
+    setIsSearchMode(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    Keyboard.dismiss();
+  };
+
+  if (!isVisible) return null;
 
   return (
     <Modal
       visible={isVisible}
-      animationType="none"
       transparent
+      animationType="none"
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
+        <TouchableOpacity 
+          style={styles.backdrop} 
+          activeOpacity={1} 
+          onPress={onClose}
+        />
+        
         <Animated.View
           style={[
             styles.sidebar,
             {
               transform: [{ translateX: slideAnim }],
               width: isCollapsed ? COLLAPSED_WIDTH : SIDEBAR_WIDTH,
-              paddingTop: insets.top,
-              paddingBottom: insets.bottom,
+              paddingTop: safeAreaInsets.top,
             },
           ]}
         >
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerContent}>
-              {!isCollapsed ? (
-                <View style={styles.logoContainer}>
-                  <ArtifactLogo style={styles.logo} />
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={styles.expandButton}
-                  onPress={toggleCollapse}
-                >
-                  <Menu size={18} color="#ffffff" />
-                </TouchableOpacity>
-              )}
-
-              <TouchableOpacity
-                style={styles.toggleButton}
-                onPress={isCollapsed ? toggleCollapse : onClose}
-              >
-                {isCollapsed ? (
-                  <Menu size={20} color="#ffffff" />
-                ) : (
-                  <Menu size={20} color="#ffffff" />
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              <TouchableOpacity onPress={toggleCollapse} style={styles.logoContainer}>
+                <ArtifactLogo size={isCollapsed ? 24 : 32} />
+                {!isCollapsed && (
+                  <Text style={styles.logoText}>Artifact</Text>
                 )}
               </TouchableOpacity>
+              
+              {!isCollapsed && (
+                <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                  <X size={20} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              )}
             </View>
-          </View>
 
-          {/* Content */}
-          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+            {/* Search */}
             {!isCollapsed && (
-              <>
-                {/* Search Bar */}
-                <TouchableOpacity
-                  style={styles.searchButton}
-                  onPress={handleSearchToggle}
-                >
-                  <Search size={16} color="#9ca3af" />
-                  <Text style={styles.searchButtonText}>Search</Text>
-                  <Text style={styles.searchShortcut}>⌘K</Text>
-                </TouchableOpacity>
-
-                {/* New Chat Button */}
-                <TouchableOpacity
-                  style={[
-                    styles.navButton,
-                    (!onNewChat || isCreatingChat) && styles.navButtonDisabled,
-                  ]}
-                  onPress={handleNewChat}
-                  disabled={!onNewChat || isCreatingChat}
-                  activeOpacity={0.7}
-                >
-                  {isCreatingChat ? (
-                    <LoadingSpinner size={18} color="#ffffff" />
-                  ) : (
-                    <PenSquare size={18} color="#ffffff" />
+              <View style={styles.searchSection}>
+                <View style={[styles.searchContainer, isSearchMode && styles.searchActive]}>
+                  <Search size={16} color={Colors.textSecondary} style={styles.searchIcon} />
+                  <TextInput
+                    ref={searchInputRef}
+                    style={styles.searchInput}
+                    placeholder="Search conversations..."
+                    placeholderTextColor={Colors.textSecondary}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    onFocus={handleSearchFocus}
+                    onBlur={handleSearchBlur}
+                    onSubmitEditing={handleSearchSubmit}
+                    returnKeyType="search"
+                  />
+                  {isSearchMode && (
+                    <TouchableOpacity onPress={handleSearchCancel} style={styles.searchCancel}>
+                      <X size={14} color={Colors.textSecondary} />
+                    </TouchableOpacity>
                   )}
-                  <Text style={styles.navButtonText}>
-                    {isCreatingChat ? 'Creating...' : 'Chat'}
-                  </Text>
-                  <Text style={styles.navShortcut}>⌘M</Text>
-                </TouchableOpacity>
+                </View>
+              </View>
+            )}
 
-                {/* Library Button */}
-                <TouchableOpacity
-                  style={styles.navButton}
-                  onPress={onNavigateToLibrary}
-                >
-                  <Images size={18} color="#ffffff" />
-                  <Text style={styles.navButtonText}>Library</Text>
-                </TouchableOpacity>
+            {/* Navigation */}
+            {!isSearchMode && (
+              <>
+                <View style={styles.navigation}>
+                  <TouchableOpacity
+                    style={styles.navButton}
+                    onPress={handleInternalNewChat}
+                  >
+                    <PenSquare size={18} color="#ffffff" />
+                    {!isCollapsed && (
+                      <Text style={styles.navButtonText}>New Chat</Text>
+                    )}
+                  </TouchableOpacity>
 
-                {/* Canvases Button */}
-                <TouchableOpacity
-                  style={styles.navButton}
-                  onPress={onNavigateToCanvases}
-                >
-                  <FileText size={18} color="#ffffff" />
-                  <Text style={styles.navButtonText}>Canvases</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.navButton}
+                    onPress={onNavigateToLibrary}
+                  >
+                    <Images size={18} color="#ffffff" />
+                    {!isCollapsed && (
+                      <Text style={styles.navButtonText}>Library</Text>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.navButton}
+                    onPress={onNavigateToCanvases}
+                  >
+                    <FileText size={18} color="#ffffff" />
+                    {!isCollapsed && (
+                      <Text style={styles.navButtonText}>Canvases</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                {/* Main Content Area - Workspaces and History */}
+                <View style={styles.mainContent}>
+                  {!isCollapsed && (
+                    <NavChatWorkspaces
+                      onWorkspaceSelect={onWorkspaceSelect}
+                      currentWorkspaceId={currentWorkspace?.id}
+                    />
+                  )}
+                  
+                  <NavChatHistory
+                    threads={threads}
+                    currentThreadId={currentThreadId}
+                    onThreadSelect={handleInternalThreadSelect}
+                    onThreadDelete={handleInternalThreadDelete}
+                    onThreadRename={handleInternalThreadRename}
+                    onThreadShare={onThreadShare}
+                    onThreadClone={onThreadClone}
+                    onToggleBookmark={onToggleBookmark}
+                    isCollapsed={isCollapsed}
+                    searchQuery={searchQuery}
+                  />
+                </View>
               </>
             )}
 
-            {/* Main Content Area - Workspaces and History */}
-            <View style={styles.mainContent}>
-              {!isCollapsed && (
-                <NavChatWorkspaces
-                  onWorkspaceSelect={onWorkspaceSelect}
-                  currentWorkspaceId={currentWorkspace?.id}
-                />
-              )}
-              
-              <NavChatHistory
-                threads={threads}
-                currentThreadId={currentThreadId}
-                onThreadSelect={onThreadSelect}
-                onThreadDelete={onThreadDelete}
-                onThreadRename={onThreadRename}
-                onThreadShare={onThreadShare}
-                onThreadClone={onThreadClone}
-                onToggleBookmark={onToggleBookmark}
-                isCollapsed={isCollapsed}
-                searchQuery={searchQuery}
-              />
-            </View>
+            {/* Search Results */}
+            {isSearchMode && searchResults.length > 0 && (
+              <View style={styles.searchResults}>
+                <Text style={styles.searchResultsTitle}>Search Results</Text>
+                {searchResults.map((result) => (
+                  <TouchableOpacity
+                    key={result.id}
+                    style={styles.searchResultItem}
+                    onPress={() => handleSearchResultSelect(result)}
+                  >
+                    <Text style={styles.searchResultText}>{result.title}</Text>
+                    <Text style={styles.searchResultType}>{result.type}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </ScrollView>
 
           {/* Footer */}
@@ -341,106 +455,20 @@ export function Sidebar({
             />
           </View>
         </Animated.View>
-
-        {/* Search Dialog */}
-        <Modal
-          visible={isSearchOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setIsSearchOpen(false)}
-        >
-          <KeyboardAvoidingView
-            style={styles.searchOverlay}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          >
-            <View style={styles.searchModal}>
-              <View style={styles.searchHeader}>
-                <Search size={20} color="#9ca3af" />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Search chats..."
-                  placeholderTextColor="#9ca3af"
-                  value={searchQuery}
-                  onChangeText={handleSearch}
-                  autoFocus
-                />
-                <TouchableOpacity
-                  style={styles.searchCloseButton}
-                  onPress={() => setIsSearchOpen(false)}
-                >
-                  <X size={20} color="#9ca3af" />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView style={styles.searchResults}>
-                {/* New Chat Option */}
-                <TouchableOpacity
-                  style={styles.searchResultItem}
-                  onPress={() => {
-                    setIsSearchOpen(false);
-                    handleNewChat();
-                  }}
-                >
-                  <PenSquare size={18} color="#9ca3af" />
-                  <Text style={styles.searchResultText}>New chat</Text>
-                </TouchableOpacity>
-
-                {/* Search Results */}
-                {searchResults.map((result) => (
-                  <TouchableOpacity
-                    key={result.id}
-                    style={styles.searchResultItem}
-                    onPress={() => {
-                      setIsSearchOpen(false);
-                      // Handle result selection
-                    }}
-                  >
-                    <ArtifactLogo style={styles.searchResultIcon} />
-                    <Text style={styles.searchResultText}>{result.title}</Text>
-                  </TouchableOpacity>
-                ))}
-
-                {searchQuery && searchResults.length === 0 && (
-                  <View style={styles.noResults}>
-                    <Text style={styles.noResultsText}>
-                      No chats found matching "{searchQuery}"
-                    </Text>
-                  </View>
-                )}
-              </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </Modal>
-
-        {/* Notifications Dialog */}
-        <Modal
-          visible={isNotificationsOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setIsNotificationsOpen(false)}
-        >
-          <View style={styles.notificationsOverlay}>
-            <View style={styles.notificationsModal}>
-              <View style={styles.notificationsHeader}>
-                <Bell size={20} color="#9333ea" />
-                <Text style={styles.notificationsTitle}>Notifications</Text>
-                <TouchableOpacity
-                  style={styles.notificationsCloseButton}
-                  onPress={() => setIsNotificationsOpen(false)}
-                >
-                  <X size={20} color="#9ca3af" />
-                </TouchableOpacity>
-              </View>
-              
-              <View style={styles.notificationsContent}>
-                <Text style={styles.noNotificationsText}>
-                  No notifications to show
-                </Text>
-              </View>
-            </View>
-          </View>
-        </Modal>
       </View>
+
+      {/* Search Dialog */}
+      {isSearchMode && (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.searchDialog}
+        >
+          <TouchableOpacity
+            style={styles.searchDialogBackdrop}
+            onPress={handleSearchCancel}
+          />
+        </KeyboardAvoidingView>
+      )}
     </Modal>
   );
 }
@@ -450,69 +478,78 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   sidebar: {
     backgroundColor: '#252628',
     borderRightWidth: 1,
     borderRightColor: '#374151',
     flex: 1,
   },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#374151',
   },
-  headerContent: {
+  logoContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
-  logoContainer: {
-    flex: 1,
+  logoText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginLeft: 8,
   },
-  logo: {
-    width: 32,
-    height: 32,
+  closeButton: {
+    padding: 4,
   },
-  expandButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 6,
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  toggleButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 6,
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  content: {
-    flex: 1,
+  searchSection: {
     paddingHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
   },
-  searchButton: {
+  searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#374151',
     borderRadius: 24,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    marginTop: 12,
-    marginBottom: 8,
   },
-  searchButtonText: {
-    color: '#9ca3af',
-    fontSize: 14,
-    marginLeft: 8,
+  searchActive: {
+    borderColor: '#9333ea',
+    borderWidth: 1,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
     flex: 1,
+    color: '#ffffff',
+    fontSize: 16,
   },
-  searchShortcut: {
-    color: '#6b7280',
-    fontSize: 12,
+  searchCancel: {
+    padding: 4,
+  },
+  navigation: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
   },
   navButton: {
     flexDirection: 'row',
@@ -522,11 +559,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginVertical: 2,
-    borderWidth: 2,
-    borderColor: 'rgba(147, 51, 234, 0.15)',
-  },
-  navButtonDisabled: {
-    opacity: 0.5,
   },
   navButtonText: {
     color: '#ffffff',
@@ -534,122 +566,64 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     flex: 1,
   },
-  navShortcut: {
-    color: '#6b7280',
-    fontSize: 12,
-  },
   mainContent: {
     flex: 1,
     marginTop: 16,
   },
-
   footer: {
     borderTopWidth: 1,
     borderTopColor: '#374151',
   },
   // Search Modal Styles
-  searchOverlay: {
+  searchDialog: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+    zIndex: 10,
+  },
+  searchDialogBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
   },
-  searchModal: {
+  searchResults: {
     backgroundColor: '#1f2937',
     borderRadius: 12,
     width: '100%',
     maxWidth: 400,
     maxHeight: '80%',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 11,
+    padding: 16,
   },
-  searchHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#374151',
-  },
-  searchInput: {
-    flex: 1,
+  searchResultsTitle: {
     color: '#ffffff',
     fontSize: 16,
-    marginLeft: 8,
-  },
-  searchCloseButton: {
-    padding: 4,
-  },
-  searchResults: {
-    maxHeight: 400,
+    fontWeight: '600',
+    marginBottom: 8,
   },
   searchResultItem: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#374151',
-  },
-  searchResultIcon: {
-    width: 20,
-    height: 20,
   },
   searchResultText: {
     color: '#ffffff',
     fontSize: 14,
-    marginLeft: 12,
-  },
-  noResults: {
-    paddingHorizontal: 16,
-    paddingVertical: 24,
-    alignItems: 'center',
-  },
-  noResultsText: {
-    color: '#6b7280',
-    fontSize: 14,
-  },
-  // Notifications Modal Styles
-  notificationsOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  notificationsModal: {
-    backgroundColor: '#1f2937',
-    borderRadius: 12,
-    width: '100%',
-    maxWidth: 400,
-    maxHeight: '80%',
-  },
-  notificationsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#374151',
-  },
-  notificationsTitle: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '600',
-    marginLeft: 8,
     flex: 1,
   },
-  notificationsCloseButton: {
-    padding: 4,
-  },
-  notificationsContent: {
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 200,
-  },
-  noNotificationsText: {
+  searchResultType: {
     color: '#6b7280',
-    fontSize: 14,
+    fontSize: 12,
   },
 });
 

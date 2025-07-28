@@ -397,8 +397,6 @@ export function NavChatHistory({
           !isCollapsed && {
             backgroundColor: 'transparent',
             borderRadius: 8,
-            borderWidth: 2,
-            borderColor: 'rgba(147, 51, 234, 0.15)',
             marginVertical: 2,
           }
         ]}

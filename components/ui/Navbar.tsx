@@ -42,7 +42,7 @@ export default function Navbar({ title, onMenuPress, showLogo = false }: NavbarP
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#000000', // Match main chat background
+    backgroundColor: '#161618', // Match main chat background
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
@@ -52,7 +52,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     minHeight: 56,
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
   },
   menuButton: {
     width: 44,

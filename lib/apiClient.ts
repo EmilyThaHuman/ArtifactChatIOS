@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 
 // API Configuration
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3002';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://assistantservicesapi.onrender.com';
 
 // Default headers for React Native requests
 const getDefaultHeaders = () => ({
@@ -55,6 +55,119 @@ export class ApiClient {
       method: 'DELETE',
       ...options,
     });
+  }
+
+  /**
+   * Make a streaming request for chat completions
+   */
+  static async stream(
+    endpoint: string, 
+    data: any, 
+    onChunk: (chunk: string) => void,
+    onComplete?: (fullResponse: string) => void,
+    onError?: (error: Error) => void,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const url = `${this.baseURL}${endpoint}`;
+    
+    console.log(`🌊 [API] STREAM ${url}`);
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...getDefaultHeaders(),
+          'Accept': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify(data),
+        signal,
+      });
+
+      if (!response.ok) {
+        const errorData = await this.parseErrorResponse(response);
+        throw new ApiError(
+          errorData.error || `HTTP ${response.status}: ${response.statusText}`,
+          response.status,
+          errorData
+        );
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Response body is not readable');
+      }
+
+      const decoder = new TextDecoder();
+      let accumulatedContent = '';
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) break;
+          if (signal?.aborted) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          
+          // Keep the last potentially incomplete line in buffer
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.trim() === '') continue;
+            
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              
+              if (data === '[DONE]') {
+                onComplete?.(accumulatedContent);
+                return accumulatedContent;
+              }
+
+              try {
+                const parsed = JSON.parse(data);
+                const content = parsed.choices?.[0]?.delta?.content || '';
+                
+                if (content) {
+                  accumulatedContent += content;
+                  onChunk(content);
+                }
+              } catch (parseError) {
+                console.warn('Failed to parse SSE data:', data);
+              }
+            }
+          }
+        }
+
+        onComplete?.(accumulatedContent);
+        return accumulatedContent;
+        
+      } finally {
+        reader.releaseLock();
+      }
+
+    } catch (error: any) {
+      console.error(`💥 [API] Stream Error:`, error);
+      
+      if (error.name === 'AbortError') {
+        throw error;
+      }
+      
+      if (error instanceof ApiError) {
+        onError?.(error);
+        throw error;
+      }
+      
+      const apiError = new ApiError(
+        error.message || 'Streaming request failed',
+        0,
+        { originalError: error }
+      );
+      onError?.(apiError);
+      throw apiError;
+    }
   }
 
   /**
@@ -113,68 +226,148 @@ export class ApiClient {
   }
 
   /**
-   * Parse error response
+   * Parse error response from API
    */
-  private static async parseErrorResponse(response: Response) {
-    try {
-      const text = await response.text();
-      if (!text) return { error: 'Unknown error' };
-      
-      try {
-        return JSON.parse(text);
-      } catch {
-        return { error: text };
-      }
-    } catch {
-      return { error: 'Failed to parse error response' };
-    }
-  }
-
-  /**
-   * Parse success response
-   */
-  private static async parseSuccessResponse(response: Response) {
-    const text = await response.text();
-    if (!text) return {};
+  private static async parseErrorResponse(response: Response): Promise<any> {
+    const contentType = response.headers.get('content-type');
     
     try {
-      return JSON.parse(text);
-    } catch {
-      return { data: text };
+      if (contentType?.includes('application/json')) {
+        return await response.json();
+      } else {
+        const text = await response.text();
+        return { error: text || response.statusText };
+      }
+    } catch (parseError) {
+      console.warn('Failed to parse error response:', parseError);
+      return { error: response.statusText };
     }
   }
 
   /**
-   * Test API connection
+   * Parse successful response from API
    */
-  static async testConnection(): Promise<{ success: boolean; error?: string }> {
+  private static async parseSuccessResponse(response: Response): Promise<any> {
+    const contentType = response.headers.get('content-type');
+    
     try {
-      console.log('🔍 [API] Testing connection...');
-      await this.get('/api/stripe/plans');
-      console.log('✅ [API] Connection test successful');
-      return { success: true };
-    } catch (error) {
-      console.error('❌ [API] Connection test failed:', error);
-      return { 
-        success: false, 
-        error: error instanceof ApiError ? error.message : 'Connection test failed' 
-      };
+      if (contentType?.includes('application/json')) {
+        return await response.json();
+      } else if (contentType?.includes('text/')) {
+        return await response.text();
+      } else {
+        // For binary data or unknown content types
+        return await response.blob();
+      }
+    } catch (parseError) {
+      console.warn('Failed to parse response:', parseError);
+      throw new ApiError('Failed to parse response', response.status);
     }
   }
 
   /**
-   * Get API health status
+   * Backend AI API convenience methods
    */
-  static async getHealthStatus() {
-    try {
-      const response = await this.get('/');
-      return { healthy: true, ...response };
-    } catch (error) {
-      return { 
-        healthy: false, 
-        error: error instanceof ApiError ? error.message : 'Health check failed' 
-      };
-    }
+  static ai = {
+    /**
+     * Create chat completion
+     */
+    chatCompletion: (data: any) => ApiClient.post('/api/ai/chat/completion', data),
+
+    /**
+     * Stream chat completion
+     */
+    streamChatCompletion: (
+      data: any,
+      onChunk: (chunk: string) => void,
+      onComplete?: (fullResponse: string) => void,
+      onError?: (error: Error) => void,
+      signal?: AbortSignal
+    ) => ApiClient.stream('/api/ai/chat/stream', data, onChunk, onComplete, onError, signal),
+
+    /**
+     * Generate title
+     */
+    generateTitle: (data: any) => ApiClient.post('/api/ai/chat/title', data),
+
+    /**
+     * Generate summary
+     */
+    generateSummary: (data: any) => ApiClient.post('/api/ai/chat/summary', data),
+
+    /**
+     * Upload file
+     */
+    uploadFile: (data: any) => ApiClient.post('/api/ai/files/upload', data),
+
+    /**
+     * Vector store operations
+     */
+    vectorStore: {
+      create: (data: any) => ApiClient.post('/api/ai/vector-store/create', data),
+      get: (id: string) => ApiClient.get(`/api/ai/vector-store/${id}`),
+      list: (params?: any) => ApiClient.get('/api/ai/vector-store/list', { 
+        headers: { 'Content-Type': 'application/json' } 
+      }),
+      delete: (id: string) => ApiClient.delete(`/api/ai/vector-store/${id}`),
+      search: (id: string, data: any) => ApiClient.post(`/api/ai/vector-store/${id}/search`, data),
+      uploadAndAttach: (id: string, data: any) => ApiClient.post(`/api/ai/vector-store/${id}/files/upload-and-attach`, data),
+      attachFile: (id: string, data: any) => ApiClient.post(`/api/ai/vector-store/${id}/files/attach`, data),
+      deleteFile: (vectorStoreId: string, fileId: string) => ApiClient.delete(`/api/ai/vector-store/${vectorStoreId}/files/${fileId}`),
+    },
+
+    /**
+     * Image generation
+     */
+    generateImage: (model: string, data: any) => ApiClient.post(`/api/ai/image/generate/openai/${model}`, data),
+
+    /**
+     * File operations
+     */
+    files: {
+      get: (id: string) => ApiClient.get(`/api/ai/files/${id}`),
+      list: (params?: any) => ApiClient.get('/api/ai/files', { 
+        headers: { 'Content-Type': 'application/json' } 
+      }),
+      delete: (id: string) => ApiClient.delete(`/api/ai/files/${id}`),
+      getContent: (id: string) => ApiClient.get(`/api/ai/files/${id}/content`),
+    },
+
+    /**
+     * Assistant operations
+     */
+    assistant: {
+      generateAvatarPrompt: (data: any) => ApiClient.post('/api/ai/assistant/avatar-prompt', data),
+      suggestTools: (data: any) => ApiClient.post('/api/ai/assistant/suggest-tools', data),
+    },
+
+    /**
+     * Memory operations
+     */
+    memory: {
+      generateFilename: (data: any) => ApiClient.post('/api/ai/memory/filename', data),
+    },
+  };
+
+  /**
+   * Tool operations
+   */
+  static tools = {
+    codeInterpreter: (data: any) => ApiClient.post('/api/tools/code-interpreter', data),
+  };
+
+  /**
+   * Get base URL for the API
+   */
+  static getBaseURL(): string {
+    return this.baseURL;
+  }
+
+  /**
+   * Set base URL for the API (useful for testing)
+   */
+  static setBaseURL(url: string): void {
+    this.baseURL = url;
   }
 }
 
@@ -204,9 +397,6 @@ export class ApiError extends Error {
     return this.status >= 500 && this.status < 600;
   }
 }
-
-// Export the base URL for use in other files
-export { API_BASE_URL };
 
 // Export a default instance
 export default ApiClient; 

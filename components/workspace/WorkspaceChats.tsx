@@ -291,10 +291,6 @@ export default function WorkspaceChats({
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Recent Chats</Text>
-        <Text style={styles.headerCount}>
-          {threads.length} chat{threads.length !== 1 ? 's' : ''}
-        </Text>
       </View>
 
       {/* Threads list */}

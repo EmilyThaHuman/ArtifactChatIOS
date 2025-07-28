@@ -452,12 +452,12 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(22, 22, 24, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   colorPickerModal: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#161618',
     borderRadius: 16,
     padding: 24,
     margin: 32,

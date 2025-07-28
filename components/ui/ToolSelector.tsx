@@ -38,13 +38,13 @@ interface ImageStyle {
 const AVAILABLE_TOOLS: Tool[] = [
   {
     id: 'web_search',
-    name: 'Search the web',
+    name: 'Web Search',
     icon: Search,
     category: 'web',
   },
   {
     id: 'image_gen',
-    name: 'Image Generation',
+    name: 'Create Image',
     icon: ImageIcon,
     category: 'creative',
   },

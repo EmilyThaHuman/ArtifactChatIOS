@@ -7,13 +7,13 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { 
   Files, 
-  Users, 
   Plus,
   ArrowLeft,
   Menu,
@@ -32,6 +32,7 @@ import {
 import { Colors } from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/auth/AuthHandler';
+import { useAssistantStore } from '@/lib/assistantStore';
 import { Workspace } from '@/lib/workspace';
 import WorkspaceHeader from './WorkspaceHeader';
 import WorkspaceChats from './WorkspaceChats';
@@ -42,6 +43,42 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import Sidebar from '@/components/ui/Sidebar';
 import { ThreadManager } from '@/lib/threads';
 import WorkspaceInput from '@/components/ui/WorkspaceInput';
+import { AssistantCircles } from '@/components/ui/AssistantCircles';
+import { ALL_MODELS, MODEL_CATEGORY_COLORS, ModelInfo } from '@/constants/Models';
+import { OpenAIIcon } from '@/components/ui/OpenAIIcon';
+import { 
+  ClaudeIcon,
+  CohereIcon,
+  DeepSeekIcon,
+  GeminiIcon,
+  GroqIcon,
+  GrokIcon,
+  MistralIcon,
+  PerplexityIcon,
+  OpenRouterIcon,
+} from '@/components/ui/icons';
+
+interface ModelOption {
+  id: string;
+  name: string;
+  version: string;
+  color: string;
+  model: string;
+  description: string;
+  category?: string;
+  provider: string;
+}
+
+const modelOptions: ModelOption[] = ALL_MODELS.map((model: ModelInfo) => ({
+  id: model.id,
+  name: model.name,
+  version: model.version,
+  color: MODEL_CATEGORY_COLORS[model.category || 'flagship'],
+  model: model.model,
+  description: model.description,
+  category: model.category,
+  provider: model.provider,
+}));
 
 // File type icons component to match web app
 const FileTypeIcons = ({ files = [] }: { files: any[] }) => {
@@ -109,27 +146,7 @@ const FileTypeIcons = ({ files = [] }: { files: any[] }) => {
   );
 };
 
-// Assistant circles component to match web app
-const AssistantCircles = ({ assistants = [] }: { assistants: any[] }) => {
-  if (assistants.length === 0) return null;
 
-  return (
-    <View style={styles.assistantCircles}>
-      {assistants.slice(0, 3).map((assistant, index) => (
-        <View
-          key={assistant.id}
-          style={[
-            styles.assistantCircle,
-            { backgroundColor: Colors.purple500 },
-            index > 0 && { marginLeft: -8 }
-          ]}
-        >
-          <Users size={12} color="white" />
-        </View>
-      ))}
-    </View>
-  );
-};
 
 interface SingleWorkspacePageProps {
   workspaceId: string;
@@ -178,9 +195,17 @@ export default function SingleWorkspacePage({ workspaceId }: SingleWorkspacePage
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isAssistantDialogOpen, setIsAssistantDialogOpen] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [selectedModel, setSelectedModel] = useState(modelOptions[0]);
+  const [showModelSelector, setShowModelSelector] = useState(false);
 
   const router = useRouter();
   const { user, profile } = useAuth();
+  const { 
+    assistants: allAssistants, 
+    currentAssistant, 
+    setCurrentAssistant,
+    initializeAssistants 
+  } = useAssistantStore();
 
   // Load workspace data
   useEffect(() => {
@@ -370,6 +395,56 @@ export default function SingleWorkspacePage({ workspaceId }: SingleWorkspacePage
     }
   };
 
+  const getProviderIcon = (provider: string, size: number = 20) => {
+    switch (provider) {
+      case 'openai':
+        return <OpenAIIcon size={size} color="#ffffff" />;
+      case 'anthropic':
+        return <ClaudeIcon size={size} />;
+      case 'google':
+        return <GeminiIcon size={size} />;
+      case 'cohere':
+        return <CohereIcon size={size} />;
+      case 'deepseek':
+        return <DeepSeekIcon size={size} />;
+      case 'groq':
+        return <GroqIcon size={size} color="#ffffff" />;
+      case 'xai':
+        return <GrokIcon size={size} color="#ffffff" />;
+      case 'mistral':
+        return <MistralIcon size={size} />;
+      case 'perplexity':
+        return <PerplexityIcon size={size} />;
+      case 'openrouter':
+        return <OpenRouterIcon size={size} color="#ffffff" />;
+      default:
+        return <OpenAIIcon size={size} color="#ffffff" />;
+    }
+  };
+
+  const handleModelSelect = async (model: ModelOption) => {
+    try {
+      // Show the new model immediately for better UX
+      setSelectedModel(model);
+      setShowModelSelector(false);
+      
+      // Update the assistant in the database using the assistant store
+      console.log(`🔄 [SingleWorkspacePage] Switching model to: ${model.model}`);
+      const updateCurrentAssistantModel = useAssistantStore.getState().updateCurrentAssistantModel;
+      const result = await updateCurrentAssistantModel(model.model);
+      
+      if (!result) {
+        console.log(`❌ [SingleWorkspacePage] Failed to switch model, reverting selection`);
+        Alert.alert('Error', 'Failed to update model. Please try again.');
+      } else {
+        console.log(`✅ [SingleWorkspacePage] Successfully switched to model: ${model.name}`);
+      }
+    } catch (error: any) {
+      console.error('❌ [SingleWorkspacePage] Error in handleModelSelect:', error);
+      Alert.alert('Error', `Failed to switch model: ${error.message}`);
+    }
+  };
+
   const handleSidebarToggle = () => {
     setShowSidebar(!showSidebar);
   };
@@ -449,8 +524,14 @@ export default function SingleWorkspacePage({ workspaceId }: SingleWorkspacePage
           </TouchableOpacity>
           
           {/* Model Selector */}
-          <TouchableOpacity style={styles.modelSelector} activeOpacity={0.7}>
-            <Text style={styles.modelText}>ChatGPT 4o</Text>
+          <TouchableOpacity 
+            style={styles.modelSelector} 
+            activeOpacity={0.7}
+            onPress={() => setShowModelSelector(true)}
+          >
+            <Text style={styles.modelText}>
+              {selectedModel.name}
+            </Text>
             <ChevronDown size={16} color={Colors.textSecondary} />
           </TouchableOpacity>
           
@@ -509,7 +590,19 @@ export default function SingleWorkspacePage({ workspaceId }: SingleWorkspacePage
                   </Text>
                 </View>
                 <View style={styles.buttonIcons}>
-                  <AssistantCircles assistants={workspaceAssistants} />
+                  <AssistantCircles 
+                    assistants={workspaceAssistants}
+                    onAssistantSelect={(assistantId) => {
+                      const assistant = workspaceAssistants.find(a => a.id === assistantId);
+                      if (assistant) {
+                        setCurrentAssistant(assistant);
+                      }
+                    }}
+                    currentAssistantId={currentAssistant?.id}
+                    storedAssistantIds={allAssistants.map(a => a.id)}
+                    limit={3}
+                    size={24}
+                  />
                 </View>
               </View>
             </TouchableOpacity>
@@ -545,8 +638,56 @@ export default function SingleWorkspacePage({ workspaceId }: SingleWorkspacePage
         onOpenChange={setIsAssistantDialogOpen}
         workspaceId={workspaceId}
         onAssistantAction={async (assistantId, action) => {
-          // Handle assistant attachment/detachment
-          console.log(`${action} assistant ${assistantId} to workspace ${workspaceId}`);
+          try {
+            console.log(`${action} assistant ${assistantId} to workspace ${workspaceId}`);
+            
+            // Get current workspace data
+            const { data: currentWorkspace, error: fetchError } = await supabase
+              .from('workspaces')
+              .select('workspace_assistants')
+              .eq('id', workspaceId)
+              .single();
+
+            if (fetchError) {
+              throw new Error(`Failed to fetch workspace: ${fetchError.message}`);
+            }
+
+            const currentAssistants = currentWorkspace?.workspace_assistants || [];
+            let updatedAssistants;
+
+            if (action === 'attach') {
+              // Add assistant if not already present
+              if (!currentAssistants.includes(assistantId)) {
+                updatedAssistants = [...currentAssistants, assistantId];
+              } else {
+                updatedAssistants = currentAssistants;
+              }
+            } else if (action === 'detach') {
+              // Remove assistant
+              updatedAssistants = currentAssistants.filter(id => id !== assistantId);
+            } else {
+              throw new Error(`Invalid action: ${action}`);
+            }
+
+            // Update workspace with new assistant list
+            const { error: updateError } = await supabase
+              .from('workspaces')
+              .update({ 
+                workspace_assistants: updatedAssistants,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', workspaceId);
+
+            if (updateError) {
+              throw new Error(`Failed to update workspace: ${updateError.message}`);
+            }
+
+            console.log(`✅ Successfully ${action}ed assistant ${assistantId} ${action === 'attach' ? 'to' : 'from'} workspace ${workspaceId}`);
+            
+          } catch (error) {
+            console.error(`❌ Failed to ${action} assistant:`, error);
+            throw error; // Re-throw so the dialog can handle the error
+          }
         }}
       />
 
@@ -571,6 +712,51 @@ export default function SingleWorkspacePage({ workspaceId }: SingleWorkspacePage
         />
       </View>
 
+      {/* Model Selector Modal */}
+      <Modal
+        visible={showModelSelector}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowModelSelector(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowModelSelector(false)}
+        >
+          <View style={styles.modelSelectorContainer}>
+            <Text style={styles.modelSelectorTitle}>Choose Model</Text>
+            <ScrollView 
+              style={styles.modelOptionsScroll}
+              showsVerticalScrollIndicator={true}
+              contentContainerStyle={styles.modelOptionsContent}
+            >
+              {modelOptions.map((model) => (
+                <TouchableOpacity
+                  key={model.id}
+                  style={[
+                    styles.modelOption,
+                    selectedModel.id === model.id && styles.selectedModelOption
+                  ]}
+                  onPress={() => handleModelSelect(model)}
+                >
+                  <View style={styles.modelIcon}>
+                    {getProviderIcon(model.provider, 20)}
+                  </View>
+                  <View style={styles.modelInfo}>
+                    <Text style={styles.modelName}>{model.name}</Text>
+                    <Text style={styles.modelProvider}>{model.provider}</Text>
+                  </View>
+                  {selectedModel.id === model.id && (
+                    <View style={styles.selectedIndicator} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Sidebar */}
       <Sidebar
         isVisible={showSidebar}
@@ -589,13 +775,13 @@ export default function SingleWorkspacePage({ workspaceId }: SingleWorkspacePage
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
     gap: 16,
   },
   loadingText: {
@@ -606,7 +792,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
     padding: 32,
   },
   errorText: {
@@ -627,7 +813,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   header: {
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
@@ -738,7 +924,7 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   topBar: {
-    backgroundColor: '#000000',
+    backgroundColor: '#161618',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
@@ -761,7 +947,7 @@ const styles = StyleSheet.create({
   modelSelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'transparent',
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -772,6 +958,83 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginRight: 8,
   },
+  modelVersion: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '400',
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modelSelectorContainer: {
+    backgroundColor: '#353535',
+    borderRadius: 12,
+    padding: 16,
+    margin: 20,
+    minWidth: 280,
+    maxHeight: '70%',
+    borderWidth: 1,
+    borderColor: '#525252',
+  },
+  modelOptionsScroll: {
+    maxHeight: 400,
+  },
+  modelOptionsContent: {
+    paddingBottom: 8,
+  },
+  modelSelectorTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  modelOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginVertical: 1,
+    gap: 12,
+  },
+  selectedModelOption: {
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+  },
+  modelIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#525252',
+  },
+  modelInfo: {
+    flex: 1,
+  },
+  modelName: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  modelProvider: {
+    color: '#9ca3af',
+    fontSize: 12,
+    fontWeight: '400',
+    textTransform: 'capitalize',
+  },
+  selectedIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#3b82f6',
+  },
   optionsButton: {
     width: 44,
     height: 44,
@@ -781,8 +1044,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   iconSection: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingVertical: 24,
+    paddingHorizontal: 16,
   },
   folderIconContainer: {
     width: 80,
@@ -814,9 +1078,9 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   chatsTitle: {
-    color: Colors.textLight,
-    fontSize: 20,
-    fontWeight: '600',
+    color: Colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '400',
     marginBottom: 16,
   },
   chatInputSection: {
@@ -824,12 +1088,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    paddingBottom: 34, // Extra padding for safe area
-    backgroundColor: '#000000',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#161618',
   },
   fileTypeIcons: {
     flexDirection: 'row',
@@ -844,19 +1103,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#000000',
   },
-  assistantCircles: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  assistantCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#000000',
-  },
+
   buttonGrid: {
     flexDirection: 'row',
     backgroundColor: 'rgba(255, 255, 255, 0.05)',

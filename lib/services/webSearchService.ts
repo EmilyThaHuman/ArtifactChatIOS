@@ -88,7 +88,7 @@ export class WebSearchService {
   private baseUrl: string;
 
   private constructor() {
-    this.baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3002';
+    this.baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://assistantservicesapi.onrender.com';
   }
 
   static getInstance(): WebSearchService {
