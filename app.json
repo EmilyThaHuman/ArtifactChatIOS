@@ -52,7 +52,14 @@
     "plugins": [
       "expo-router", 
       "expo-font", 
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.artifact.intelligence",
+          "enableGooglePay": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

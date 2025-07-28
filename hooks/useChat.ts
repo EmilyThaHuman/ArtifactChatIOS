@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Alert } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import { OpenAIService, ChatMessage } from '@/lib/openai';
+import { OpenAIService, ChatMessage, VectorStoreFile, RetrievalResult } from '@/lib/openai';
 import { supabase } from '@/lib/supabase';
 import { ThreadManager } from '@/lib/threads';
 
@@ -12,6 +12,7 @@ export interface Message {
   timestamp: Date;
   isStreaming?: boolean;
   metadata?: any;
+  files?: VectorStoreFile[];
 }
 
 export interface UseChatOptions {
@@ -27,7 +28,7 @@ export interface UseChatReturn {
   isLoading: boolean;
   isConnected: boolean;
   streamingMessageId: string | null;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, files?: VectorStoreFile[]) => Promise<void>;
   stopGeneration: () => void;
   clearMessages: () => void;
   loadMessages: () => Promise<void>;
@@ -123,7 +124,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     }
   }, [threadId, workspaceId, onError]);
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, files?: VectorStoreFile[]) => {
     if (!content.trim() || isLoading) return;
 
     if (!isConnected) {
@@ -147,6 +148,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       content: content.trim(),
       role: 'user',
       timestamp: new Date(),
+      files: files && files.length > 0 ? files : undefined,
     };
 
     const assistantMessageId = (Date.now() + 1).toString();
@@ -186,16 +188,55 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       // Create abort controller for this request
       abortControllerRef.current = new AbortController();
 
+      // Check if we need to perform retrieval from vector store
+      let retrievalContext = '';
+      if (threadId) {
+        const { data: thread } = await supabase
+          .from('threads')
+          .select('vector_store_id')
+          .eq('id', threadId)
+          .single();
+        
+        if (thread?.vector_store_id) {
+          console.log('🔍 Performing vector store search for context');
+          const searchResults = await OpenAIService.searchVectorStore(
+            thread.vector_store_id,
+            userMessage.content,
+            5
+          );
+          
+          if (searchResults.length > 0) {
+            retrievalContext = OpenAIService.formatRetrievalResults(searchResults);
+            console.log(`✅ Found ${searchResults.length} relevant documents`);
+          }
+        }
+      }
+
       // Prepare conversation history
       const conversationHistory: ChatMessage[] = messages.map(msg => ({
         role: msg.role,
         content: msg.content,
       }));
 
-      // Add the new user message
+      // Add the new user message with retrieval context if available
+      let userContent = userMessage.content;
+      if (retrievalContext) {
+        userContent = `${userMessage.content}\n\n${retrievalContext}`;
+      }
+
+      // Add vision images if any
+      if (files && files.length > 0) {
+        const imageFiles = files.filter(f => f.isImage && f.publicUrl);
+        if (imageFiles.length > 0) {
+          userContent += '\n\nImages attached for analysis.';
+          // Note: For vision, we'd need to modify the message format to include images
+          // This is a simplified version - full implementation would use the vision API
+        }
+      }
+
       conversationHistory.push({
         role: 'user',
-        content: userMessage.content,
+        content: userContent,
       });
 
       // Stream the response

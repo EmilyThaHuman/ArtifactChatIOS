@@ -343,49 +343,250 @@ export class AuthManager {
 
   static async createUserProfile(user: any): Promise<{ data: UserProfile | null; error: any }> {
     try {
-      console.log('👤 Creating user profile for:', user.id);
+      console.log('👤 Creating user profile and workspace for:', user.id);
       
-      const profileData = {
-        id: user.id,
-        email: user.email,
-        full_name: user.user_metadata?.full_name || user.user_metadata?.name || '',
-        avatar_url: user.user_metadata?.avatar_url || '',
-        onboarding_completed: false,
-        settings: {
-          profile: {
-            theme: 'system',
-            language: 'en',
-          },
-          system: {
-            notifications: true,
-            autoSync: true,
-          },
-          personalization: {
-            defaultWorkspace: null,
-            contentView: 'grid',
-          },
-        },
-        user_workspaces: [],
-      };
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .insert([profileData])
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('🚨 Profile creation error:', error);
-        return { data: null, error };
-      }
-
-      console.log('✅ Profile created successfully:', {
-        id: data.id,
-        email: data.email,
-        full_name: data.full_name
+      // First, try to call the handle_new_user function by inserting a dummy auth record
+      // This will trigger the PostgreSQL function that creates everything properly
+      const { data: functionResult, error: functionError } = await supabase.rpc('handle_new_user_manual', {
+        user_id: user.id,
+        user_email: user.email,
+        user_metadata: user.user_metadata || {}
       });
-      
-      return { data, error: null };
+
+      if (functionError) {
+        console.log('⚠️ Manual function call failed, creating profile manually:', functionError);
+        
+        // Fallback: Create profile manually with full settings structure
+        const avatar_urls = [
+          'https://login.artifact.chat/storage/v1/object/public/avatars/default/ChatGPT%20Image%20Jun%2015,%202025,%2006_17_34%20PM.png',
+          'https://login.artifact.chat/storage/v1/object/public/avatars/default/ChatGPT%20Image%20Jun%2015,%202025,%2006_17_37%20PM.png',
+          'https://login.artifact.chat/storage/v1/object/public/avatars/default/ChatGPT%20Image%20Jun%2015,%202025,%2006_17_40%20PM.png',
+          'https://login.artifact.chat/storage/v1/object/public/avatars/default/ChatGPT%20Image%20Jun%2015,%202025,%2006_18_24%20PM.png',
+          'https://login.artifact.chat/storage/v1/object/public/avatars/default/ChatGPT%20Image%20Jun%2015,%202025,%2006_18_43%20PM.png'
+        ];
+        
+        const randomAvatarUrl = avatar_urls[Math.floor(Math.random() * avatar_urls.length)];
+        const randomWorkspaceAvatarUrl = avatar_urls[Math.floor(Math.random() * avatar_urls.length)];
+        
+        const profileData = {
+          id: user.id,
+          email: user.email,
+          full_name: user.user_metadata?.full_name || user.user_metadata?.name || '',
+          avatar_url: user.user_metadata?.avatar_url || randomAvatarUrl,
+          onboarding_completed: false,
+          settings: {
+            profile: {
+              display_name: user.user_metadata?.full_name || user.user_metadata?.name || '',
+              email: user.email,
+              bio: '',
+              avatar_url: user.user_metadata?.avatar_url || randomAvatarUrl,
+              profile_context: ''
+            },
+            account: {
+              security: {
+                twoFactorEnabled: false,
+                emailNotifications: false,
+                pushNotifications: false
+              },
+              subscription: {
+                plan: 'pro',
+                billingCycle: 'monthly',
+                paymentMethod: { type: 'card', last4: '' }
+              }
+            },
+            security: {
+              multiFactorEnabled: false,
+              sessionManagement: { logOutAllDevices: false }
+            },
+            personalization: {
+              name: user.user_metadata?.full_name || user.user_metadata?.name || '',
+              role: '',
+              traits: [],
+              enable_profile_memory: false,
+              enable_profile_context: true
+            },
+            dataControls: {
+              dataExport: {
+                lastExportDate: null,
+                exportFormat: 'json'
+              },
+              analytics: false,
+              usageTracking: false,
+              dataCollection: {
+                analyticsEnabled: false,
+                usageTrackingEnabled: false
+              }
+            },
+            memory: {
+              contextualMemory: false,
+              longTermMemory: false,
+              conversationHistory: { enabled: true, retentionPeriod: 30 }
+            },
+            beta: {
+              advancedAiModels: false,
+              voiceChat: false,
+              customPlugins: false,
+              betaProgramAccess: false,
+              apiKeys: {
+                anthropic: null,
+                openai: null,
+                ollama: null,
+                groq: null,
+                google: null,
+                mistral: null,
+                xai: null,
+                openrouter: null,
+                cohere: null,
+                fireworks: null,
+                fal: null,
+                deepseek: null,
+                qwen: null,
+                perplexity: null,
+                github: null,
+                pinecone: null,
+                togetherai: null
+              }
+            },
+            system: { textSize: 'md', autoSuggest: true },
+            models: {
+              'gpt-4o': true,
+              'gpt-4o-mini': true,
+              'o4-mini': false,
+              'gpt-4.1': false,
+              'gpt-4.5-preview': false,
+              'claude-opus-4-20250514': true,
+              'claude-sonnet-4-20250514': true,
+              'claude-3-7-sonnet-20250219': false,
+              'claude-3-5-sonnet-20241022': true,
+              'claude-3-5-haiku-20241022': false,
+              'claude-3-opus-20240229': true,
+              'gemini-2.5-pro-preview-05-06': true,
+              'gemini-2.0-flash': true,
+              'gemini-1.5-pro': true,
+              'mistral-small-latest': false,
+              'open-mistral-nemo': false,
+              'deepseek-chat': false,
+              'deepseek-reasoner': false,
+              'llama3-70b-8192': false,
+              'grok-3-beta': false,
+              'grok-3-fast-beta': false,
+              'grok-3-mini-beta': false,
+              'grok-3-mini-fast-beta': false,
+              'command-a-03-2025': false,
+              'command-r7b-12-2024': false,
+              'command-r-plus': false,
+              'command-r': false,
+              'sonar': false,
+              'sonar-pro': false,
+              'sonar-deep-research': false,
+              'cognitivecomputations/dolphin-mixtral-8x22b': false
+            }
+          },
+          user_workspaces: [],
+        };
+
+        // Create the profile
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .insert([profileData])
+          .select()
+          .single();
+        
+        if (profileError) {
+          console.error('🚨 Profile creation error:', profileError);
+          return { data: null, error: profileError };
+        }
+
+        // Create personal workspace
+        const workspaceData = {
+          user_id: user.id,
+          owner_id: user.id,
+          name: 'Personal Project',
+          description: 'Your personal project',
+          is_personal: true,
+          is_home: true,
+          avatar_url: randomWorkspaceAvatarUrl,
+          image_path: randomWorkspaceAvatarUrl,
+          workspace_memories: [],
+          settings: {
+            private: true,
+            notifications: false,
+            allowMemberInvites: false
+          },
+          metadata: {
+            tags: [],
+            stats: {
+              chat_count: 0,
+              file_count: 0,
+              member_count: 1
+            },
+            starred: false,
+            version: '1.0.0',
+            archived: false,
+            created_by: user.id,
+            updated_by: user.id
+          },
+          workspace_members: [user.id],
+          allow_invites: false
+        };
+
+        const { data: workspace, error: workspaceError } = await supabase
+          .from('workspaces')
+          .insert([workspaceData])
+          .select()
+          .single();
+
+        if (workspaceError) {
+          console.error('🚨 Workspace creation error:', workspaceError);
+          // Continue anyway, profile was created
+        } else {
+          console.log('✅ Workspace created successfully:', workspace.id);
+          
+          // Create workspace member entry
+          const { error: memberError } = await supabase
+            .from('workspace_members')
+            .insert([{
+              user_id: user.id,
+              workspace_id: workspace.id,
+              role: 'owner',
+              permissions: {
+                can_edit: true,
+                can_delete: true,
+                can_invite: true,
+                can_manage_members: true,
+                can_manage_settings: true
+              }
+            }]);
+
+          if (memberError) {
+            console.error('🚨 Workspace member creation error:', memberError);
+          }
+
+          // Update profile with workspace reference
+          const { error: updateError } = await supabase
+            .from('profiles')
+            .update({ user_workspaces: [workspace.id] })
+            .eq('id', user.id);
+
+          if (updateError) {
+            console.error('🚨 Profile workspace update error:', updateError);
+          }
+        }
+
+        console.log('✅ Profile created successfully:', {
+          id: profile.id,
+          email: profile.email,
+          full_name: profile.full_name
+        });
+        
+        return { data: profile, error: null };
+      } else {
+        console.log('✅ handle_new_user function executed successfully');
+        
+        // Fetch the created profile
+        const { data: profile, error: fetchError } = await this.fetchUserProfile(user.id);
+        return { data: profile, error: fetchError };
+      }
     } catch (error) {
       console.error('🚨 Profile creation exception:', error);
       return { data: null, error };

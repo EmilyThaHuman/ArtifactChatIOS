@@ -58,6 +58,12 @@ export class LinkingManager {
         return true; // Let the auth callback route handle it
       }
       
+      // Check if this is a Stripe checkout redirect
+      if (url.includes('/auth/onboarding') && (params.checkout_success || params.checkout_canceled)) {
+        console.log('🔄 Stripe checkout redirect detected:', params);
+        return true; // Let the onboarding route handle it
+      }
+      
       return false;
     } catch (error) {
       console.error('Error handling deep link:', error);

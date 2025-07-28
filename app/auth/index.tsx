@@ -17,6 +17,7 @@ import { StatusBar } from 'expo-status-bar';
 import { router, useLocalSearchParams } from 'expo-router';
 import { AuthManager } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { AntDesign, FontAwesome, MaterialIcons } from '@expo/vector-icons';
 
 export default function AuthScreen() {
   const [email, setEmail] = useState('');
@@ -179,7 +180,7 @@ export default function AuthScreen() {
                 ) : (
                   <>
                     <View style={styles.googleIconContainer}>
-                      <Text style={styles.googleIcon}>G</Text>
+                      <AntDesign name="google" size={20} color="#4285f4" />
                     </View>
                     <Text style={styles.oauthButtonText}>Continue with Google</Text>
                   </>
@@ -198,7 +199,7 @@ export default function AuthScreen() {
                 ) : (
                   <>
                     <View style={styles.githubIconContainer}>
-                      <Text style={styles.githubIcon}>●</Text>
+                      <AntDesign name="github" size={20} color="#000000" />
                     </View>
                     <Text style={styles.oauthButtonText}>Continue with GitHub</Text>
                   </>
@@ -217,7 +218,7 @@ export default function AuthScreen() {
                 ) : (
                   <>
                     <View style={styles.linkedinIconContainer}>
-                      <Text style={styles.linkedinIcon}>in</Text>
+                      <AntDesign name="linkedin-square" size={20} color="#ffffff" />
                     </View>
                     <Text style={styles.oauthButtonText}>Continue with LinkedIn</Text>
                   </>
@@ -349,11 +350,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  googleIcon: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#4285f4',
-  },
   githubIconContainer: {
     width: 24,
     height: 24,
@@ -362,10 +358,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  githubIcon: {
-    fontSize: 16,
-    color: '#000000',
-  },
   linkedinIconContainer: {
     width: 24,
     height: 24,
@@ -373,11 +365,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  linkedinIcon: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#ffffff',
   },
   oauthButtonText: {
     color: '#ffffff',

@@ -1,15 +1,38 @@
 import OpenAI from 'openai';
 import { fetch } from 'expo/fetch';
+import * as FileSystem from 'expo-file-system';
+import { supabase } from './supabase';
 
 // Initialize OpenAI client with expo/fetch for streaming support
 const openai = new OpenAI({
   apiKey: process.env.EXPO_PUBLIC_OPENAI_API_KEY || '',
   fetch: fetch as any, // Use expo/fetch for streaming support in React Native
+  dangerouslyAllowBrowser: true,
 });
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+}
+
+export interface VectorStoreFile {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  uri: string;
+  vectorStoreId?: string;
+  openaiFileId?: string;
+  status: 'uploading' | 'processing' | 'completed' | 'error';
+  isImage?: boolean;
+  publicUrl?: string;
+}
+
+export interface RetrievalResult {
+  content: string;
+  filename: string;
+  fileId: string;
+  score?: number;
 }
 
 export interface StreamingChatOptions {
@@ -122,6 +145,133 @@ export class OpenAIService {
         description: 'Fast and efficient, good for simple tasks',
       },
     ];
+  }
+
+  // Vector Store Management
+  static async createVectorStore(name: string, threadId?: string): Promise<string> {
+    try {
+      const vectorStore = await openai.vectorStores.create({
+        name,
+        expires_after: { anchor: 'last_active_at', days: 30 }
+      });
+      
+      if (threadId) {
+        await supabase
+          .from('threads')
+          .update({ vector_store_id: vectorStore.id })
+          .eq('id', threadId);
+      }
+      
+      return vectorStore.id;
+    } catch (error) {
+      console.error('Error creating vector store:', error);
+      throw error;
+    }
+  }
+
+  static async uploadFileToVectorStore(
+    file: VectorStoreFile,
+    vectorStoreId: string
+  ): Promise<string> {
+    try {
+      const base64Content = await FileSystem.readAsStringAsync(file.uri, {
+        encoding: FileSystem.EncodingType.Base64
+      });
+      
+      const byteCharacters = atob(base64Content);
+      const byteArray = new Uint8Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteArray[i] = byteCharacters.charCodeAt(i);
+      }
+      
+      const blob = new Blob([byteArray], { type: file.type });
+      const fileForUpload = new File([blob], file.name, { type: file.type });
+      
+      const uploadedFile = await openai.files.create({
+        file: fileForUpload,
+        purpose: 'assistants'
+      });
+      
+      await openai.vectorStores.files.create(vectorStoreId, {
+        file_id: uploadedFile.id
+      });
+      
+      return uploadedFile.id;
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      throw error;
+    }
+  }
+
+  static async searchVectorStore(
+    vectorStoreId: string,
+    query: string,
+    maxResults = 5
+  ): Promise<RetrievalResult[]> {
+    try {
+      const searchResults = await openai.vectorStores.search(vectorStoreId, {
+        query
+      });
+      
+      // Take only the first maxResults items
+      const limitedResults = searchResults.data.slice(0, maxResults);
+      
+      return limitedResults.map((result: any) => ({
+        content: result.content || '',
+        filename: result.metadata?.filename || 'Unknown',
+        fileId: result.file_id || result.id,
+        score: result.score || 0
+      }));
+    } catch (error) {
+      console.error('Error searching vector store:', error);
+      return [];
+    }
+  }
+
+  static formatRetrievalResults(results: RetrievalResult[]): string {
+    if (results.length === 0) return '';
+    
+    let formatted = '<files>\n';
+    for (const result of results) {
+      formatted += `<file_snippet file_id='${result.fileId}' file_name='${result.filename}'>`;
+      formatted += `<content>${result.content}</content>`;
+      formatted += '</file_snippet>\n';
+    }
+    formatted += '</files>';
+    
+    return formatted;
+  }
+
+  static async uploadImageForVision(
+    file: VectorStoreFile,
+    threadId?: string
+  ): Promise<string> {
+    try {
+      const base64Content = await FileSystem.readAsStringAsync(file.uri, {
+        encoding: FileSystem.EncodingType.Base64
+      });
+      
+      const fileName = `${Date.now()}-${file.name}`;
+      const filePath = `chat/${threadId || 'temp'}/${fileName}`;
+      
+      const { data, error } = await supabase.storage
+        .from('chat-files')
+        .upload(filePath, base64Content, {
+          contentType: file.type,
+          upsert: false
+        });
+      
+      if (error) throw error;
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from('chat-files')
+        .getPublicUrl(filePath);
+      
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      throw error;
+    }
   }
 }
 

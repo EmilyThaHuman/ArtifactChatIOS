@@ -67,10 +67,14 @@ export const Colors = {
   border: '#e2e8f0',
   borderSecondary: '#cbd5e1',
   borderDark: '#475569',
+  
+  // Additional UI Colors
+  surface: '#f8fafc',
+  surfaceDark: '#334155',
 };
 
 export const Gradients = {
-  primary: ['#9333ea', '#a855f7'] as const,
+  primary: ['#7c3aed', '#a855f7', '#8b5cf6'] as const,
   secondary: ['#8b5cf6', '#a78bfa'] as const,
   accent: ['#6366f1', '#8b5cf6'] as const,
   purple: ['#7c3aed', '#a855f7'] as const,
