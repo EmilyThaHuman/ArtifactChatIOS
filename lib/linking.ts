@@ -58,9 +58,21 @@ export class LinkingManager {
         return true; // Let the auth callback route handle it
       }
       
-      // Check if this is a Stripe checkout redirect
+      // Check if this is a Stripe success callback
+      if (url.includes('/auth/stripe-success')) {
+        console.log('🔄 Stripe success redirect detected:', params);
+        return true; // Let the appropriate route handle it
+      }
+      
+      // Check if this is a Stripe cancel callback
+      if (url.includes('/auth/stripe-cancel')) {
+        console.log('🔄 Stripe cancel redirect detected:', params);
+        return true; // Let the appropriate route handle it
+      }
+      
+      // Legacy check for direct onboarding URLs (backward compatibility)
       if (url.includes('/auth/onboarding') && (params.checkout_success || params.checkout_canceled)) {
-        console.log('🔄 Stripe checkout redirect detected:', params);
+        console.log('🔄 Legacy Stripe checkout redirect detected:', params);
         return true; // Let the onboarding route handle it
       }
       

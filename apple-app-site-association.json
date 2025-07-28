@@ -1,19 +1,29 @@
 {
   "applinks": {
-    "apps": [],
     "details": [
       {
-        "appID": "TEAMID.com.artifact.intelligence",
-        "paths": [
-          "/auth/*",
-          "/auth/callback"
+        "appIDs": ["TEAMID.com.artifact.intelligence"],
+        "components": [
+          {
+            "/": "/app/*",
+            "comment": "Matches any URL whose path starts with /app/ and opens the mobile app"
+          },
+          {
+            "/": "/auth/stripe-success*",
+            "comment": "Matches Stripe success callback URLs and opens the mobile app"
+          },
+          {
+            "/": "/auth/stripe-cancel*", 
+            "comment": "Matches Stripe cancel callback URLs and opens the mobile app"
+          }
         ]
       }
     ]
   },
+  "activitycontinuation": {
+    "apps": ["TEAMID.com.artifact.intelligence"]
+  },
   "webcredentials": {
-    "apps": [
-      "TEAMID.com.artifact.intelligence"
-    ]
+    "apps": ["TEAMID.com.artifact.intelligence"]
   }
-} 
+}

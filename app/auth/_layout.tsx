@@ -7,6 +7,8 @@ export default function AuthLayout() {
       <Stack.Screen name="verify" />
       <Stack.Screen name="callback" />
       <Stack.Screen name="onboarding" />
+      <Stack.Screen name="stripe-success" />
+      <Stack.Screen name="stripe-cancel" />
     </Stack>
   );
 }

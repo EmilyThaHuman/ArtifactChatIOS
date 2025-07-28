@@ -133,8 +133,8 @@ export default function SubscriptionStep({
       const checkoutSession = await createSubscriptionCheckoutWith1MonthFree({
         planId,
         billingInterval: billingInterval === 'yearly' ? 'year' : 'month',
-        successUrl: `artifactapp://auth/onboarding?checkout_success=true&session_id={CHECKOUT_SESSION_ID}`,
-        cancelUrl: `artifactapp://auth/onboarding?checkout_canceled=true`,
+        successUrl: `https://artifact.chat/auth/stripe-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `https://artifact.chat/auth/stripe-cancel`,
         customerEmail: user.email,
         metadata: {
           new_user_signup: 'true',
