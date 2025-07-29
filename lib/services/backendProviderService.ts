@@ -22,6 +22,7 @@ export interface StreamCompletionParams {
   tools?: any[];
   tool_choice?: any;
   stream?: boolean;
+  parallel_tool_calls?: boolean;
 }
 
 export interface CompletionResponse {
@@ -59,69 +60,108 @@ export class BackendProviderService {
   }
 
   /**
-   * Create a streaming chat completion
+   * Stream chat completion from backend API
    */
-  async createChatCompletionStream(
+  static async streamChatCompletion(
     params: StreamCompletionParams,
-    onUpdate: (chunk: string) => void,
-    options: { signal?: AbortSignal } = {}
+    onUpdate: (content: string) => void,
+    onComplete?: (finalContent: string) => void,
+    onError?: (error: ApiError) => void,
+    signal?: AbortSignal
   ): Promise<string> {
-    console.log('🌊 [BackendProviderService] Creating streaming chat completion:', {
-      provider: params.provider,
-      model: params.model,
-      messageCount: params.messages.length
-    });
-
     try {
-      // Ensure we have required parameters
-      if (!params.provider || !params.model || !params.messages) {
-        throw new Error('Missing required parameters: provider, model, or messages');
+      console.log('🌊 [BackendProviderService] Creating streaming chat completion:', {
+        provider: params.provider,
+        model: params.model,
+        messageCount: params.messages.length,
+      });
+
+      // Validate required parameters
+      if (!params.provider || !params.model || !params.messages?.length) {
+        throw new ApiError('Missing required parameters for streaming chat completion');
       }
 
-      // Prepare request data with all parameters
+      // Prepare the request data
       const requestData = {
-        ...params,
-        stream: true, // Ensure streaming is enabled
+        provider: params.provider,
+        model: params.model,
+        messages: params.messages,
+        temperature: params.temperature || 0.7,
+        max_tokens: params.max_tokens || 4096,
+        top_p: params.top_p || 1,
+        frequency_penalty: params.frequency_penalty || 0,
+        presence_penalty: params.presence_penalty || 0,
+        response_format: params.response_format,
+        tools: params.tools,
+        tool_choice: params.tool_choice,
+        stream: params.stream !== false, // Default to true
+        parallel_tool_calls: params.parallel_tool_calls !== false, // Default to true
+        // Include any additional parameters
+        ...Object.fromEntries(
+          Object.entries(params).filter(([key]) => 
+            !['provider', 'model', 'messages', 'temperature', 'max_tokens', 'top_p', 
+              'frequency_penalty', 'presence_penalty', 'response_format', 'tools', 
+              'tool_choice', 'stream', 'parallel_tool_calls'].includes(key)
+          )
+        ),
       };
 
-      // Log the request for debugging
       console.log('📤 [BackendProviderService] Stream request data:', {
         provider: requestData.provider,
         model: requestData.model,
         messageCount: requestData.messages.length,
-        hasTools: !!requestData.tools,
+        hasTools: !!requestData.tools?.length,
         toolChoice: requestData.tool_choice,
       });
 
-      // Use ApiClient's streaming method
-      const fullResponse = await ApiClient.stream(
+      let accumulatedContent = '';
+      let chunkCount = 0;
+
+      const result = await ApiClient.stream(
         '/api/ai/chat/stream',
         requestData,
-        onUpdate,
-        undefined, // onComplete handled by caller
-        undefined, // onError handled by catch
-        options.signal
+        (chunk: string) => {
+          chunkCount++;
+          accumulatedContent += chunk;
+          console.log(`🧩 [BackendProviderService] Received chunk ${chunkCount}:`, {
+            chunkLength: chunk.length,
+            preview: chunk.substring(0, 50),
+            accumulatedLength: accumulatedContent.length
+          });
+          onUpdate(chunk);
+        },
+        (finalContent: string) => {
+          console.log(`✅ [BackendProviderService] Stream completed:`, {
+            totalChunks: chunkCount,
+            finalLength: finalContent.length,
+            accumulatedLength: accumulatedContent.length,
+            preview: finalContent.substring(0, 100)
+          });
+          onComplete?.(finalContent);
+        },
+        (error: ApiError) => {
+          console.error('❌ [BackendProviderService] Stream error:', error);
+          onError?.(error);
+        },
+        signal
       );
 
-      console.log('✅ [BackendProviderService] Stream completed successfully');
-      return fullResponse;
-
+      return result;
     } catch (error: any) {
       console.error('❌ [BackendProviderService] Stream error:', error);
       
-      if (error.name === 'AbortError') {
-        throw error;
-      }
-      
       if (error instanceof ApiError) {
+        onError?.(error);
         throw error;
       }
       
-      throw new ApiError(
+      const apiError = new ApiError(
         error.message || 'Streaming chat completion failed',
         error.status || 0,
-        { originalError: error }
+        error
       );
+      onError?.(apiError);
+      throw apiError;
     }
   }
 

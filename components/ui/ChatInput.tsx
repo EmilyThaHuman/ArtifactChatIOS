@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import {
   Plus,
-  Send,
+  ArrowUp,
   X,
   Camera,
   Folder,
@@ -708,7 +708,7 @@ export default function ChatInput({
               {isLoading ? (
                 <ActivityIndicator size="small" color="#000000" />
               ) : (
-                <Send size={20} color="#161618" />
+                <ArrowUp size={20} color="#161618" />
               )}
             </TouchableOpacity>
           </View>

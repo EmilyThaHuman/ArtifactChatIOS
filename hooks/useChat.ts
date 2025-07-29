@@ -169,7 +169,8 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         role: msg.role as 'user' | 'assistant' | 'system' | 'tool',
         timestamp: new Date(msg.created_at),
         metadata: msg.metadata,
-        toolCalls: msg.metadata?.toolCalls,
+        // Check tool_calls column first (new format), then fall back to metadata (old format)
+        toolCalls: msg.tool_calls || msg.metadata?.toolCalls,
         toolCallId: msg.metadata?.toolCallId,
         name: msg.metadata?.name,
         reasoningContent: msg.metadata?.reasoningContent,
@@ -191,16 +192,18 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     }
 
     try {
-      // Prepare metadata with all message properties
+      // Prepare metadata with all message properties except toolCalls (which goes in dedicated column)
       const messageMetadata = {
         ...message.metadata,
-        toolCalls: message.toolCalls,
         toolCallId: message.toolCallId,
         name: message.name,
         reasoningContent: message.reasoningContent,
         reasoningMetadata: message.reasoningMetadata,
         isStreaming: message.isStreaming,
       };
+
+      // Remove toolCalls from metadata since it has its own column
+      delete messageMetadata.toolCalls;
 
       const { error } = await supabase
         .from('thread_messages')
@@ -210,6 +213,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           message_id: message.id,
           role: message.role,
           content: message.content,
+          tool_calls: message.toolCalls || null, // Store in dedicated column
           metadata: messageMetadata,
         });
 
@@ -217,7 +221,10 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         console.error('Error saving message:', error);
         onError?.(error);
       } else {
-        console.log(`💾 [useChat] Message saved to database: ${message.id}`);
+        console.log(`💾 [useChat] Message saved to database: ${message.id}`, {
+          hasToolCalls: !!message.toolCalls?.length,
+          toolCallCount: message.toolCalls?.length || 0
+        });
       }
     } catch (error: any) {
       console.error('Error saving message to database:', error);

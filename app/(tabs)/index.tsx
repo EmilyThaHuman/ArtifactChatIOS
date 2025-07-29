@@ -11,7 +11,8 @@ import LibraryView from '@/components/content/LibraryView';
 import { Colors, Gradients } from '@/constants/Colors';
 import { ThreadManager } from '@/lib/threads';
 import { useAuth } from '@/components/auth/AuthHandler';
-import { AuthManager } from '@/lib/auth';
+import { useAssistantStore } from '@/lib/assistantStore';
+import { WorkspaceManager } from '@/lib/workspace';
 
 interface SidebarItem {
   id: string;
@@ -32,6 +33,39 @@ export default function HomeScreen() {
   
   // Get authenticated user data
   const { user, profile, isLoading } = useAuth();
+  
+  // Get assistant store methods
+  const { initializeAssistants, currentAssistant, createTemporaryDefaultAssistant } = useAssistantStore();
+
+  // Initialize assistants when user is available
+  useEffect(() => {
+    if (user && !currentAssistant) {
+      console.log('🤖 HomeScreen: Initializing assistants for user:', user.id);
+      initializeAssistants().then((assistants) => {
+        console.log(`✅ HomeScreen: Initialized ${assistants.length} assistants`);
+        
+        // If no assistants exist, create a temporary one
+        if (assistants.length === 0) {
+          console.log('🤖 HomeScreen: No assistants found, creating temporary assistant');
+          createTemporaryDefaultAssistant(profile?.displayName || 'User').then((tempAssistant) => {
+            console.log('✅ HomeScreen: Created temporary assistant:', tempAssistant.name);
+          }).catch((error) => {
+            console.error('❌ HomeScreen: Failed to create temporary assistant:', error);
+          });
+        }
+      }).catch((error) => {
+        console.error('❌ HomeScreen: Failed to initialize assistants:', error);
+        
+        // If initialization fails, try creating a temporary assistant
+        console.log('🤖 HomeScreen: Initialization failed, creating temporary assistant as fallback');
+        createTemporaryDefaultAssistant(profile?.displayName || 'User').then((tempAssistant) => {
+          console.log('✅ HomeScreen: Created fallback temporary assistant:', tempAssistant.name);
+        }).catch((fallbackError) => {
+          console.error('❌ HomeScreen: Failed to create fallback assistant:', fallbackError);
+        });
+      });
+    }
+  }, [user, currentAssistant, initializeAssistants, createTemporaryDefaultAssistant, profile?.displayName]);
 
   // Initialize with specific thread or create new one
   useEffect(() => {

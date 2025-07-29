@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Markdown from 'react-native-markdown-display';
@@ -25,9 +26,13 @@ import {
   Sliders,
   WifiOff,
   Copy,
+  Bot,
+  Check,
+  X,
 } from 'lucide-react-native';
 import { Colors, Gradients } from '@/constants/Colors';
 import { useChat } from '@/hooks/useChat';
+import { useAssistantStore } from '@/lib/assistantStore';
 import { OpenAIService } from '@/lib/openai';
 import { useFileUpload } from '@/lib/content';
 import { FileAttachments } from '@/components/content/FileAttachments';
@@ -48,6 +53,8 @@ import { ActionButtons } from '@/components/ui/ActionButtons';
 import { ProviderAvatar } from '@/components/ui/ProviderAvatar';
 import ChatInput from '@/components/ui/ChatInput';
 import { ALL_MODELS, MODEL_CATEGORY_COLORS, ModelInfo } from '@/constants/Models';
+import { extractToolData, extractSpecificToolData } from '@/lib/utils/toolDataExtractors';
+import ImagePreview from '@/components/content/ImagePreview';
 
 interface ChatInterfaceProps {
   onMenuPress: () => void;
@@ -91,6 +98,101 @@ const suggestionCards = [
   "Debug this React Native code",
 ];
 
+// Define gradient backgrounds for avatar fallbacks (similar to web app)
+const GRADIENT_BACKGROUNDS = [
+  ['#ec4899', '#f97316'], // Pink to orange
+  ['#3b82f6', '#06b6d4'], // Blue to cyan
+  ['#9333ea', '#6366f1'], // Purple to indigo
+  ['#10b981', '#34d399'], // Green to emerald
+  ['#fbbf24', '#f59e0b'], // Yellow to amber
+  ['#ef4444', '#f43f5e'], // Red to rose
+  ['#6366f1', '#3b82f6'], // Indigo to blue
+  ['#06b6d4', '#14b8a6'], // Cyan to teal
+  ['#8b5cf6', '#a855f7'], // Violet to purple
+  ['#f59e0b', '#fde047'], // Amber to yellow
+];
+
+// Function to determine gradient background based on assistant id or name
+const getGradientBackground = (assistant: any) => {
+  if (!assistant) return GRADIENT_BACKGROUNDS[0];
+
+  // Use assistant ID if available, otherwise use name
+  const idString = assistant.id || assistant.name || "default";
+
+  // Sum the char codes to create a number
+  const charSum = idString
+    .split("")
+    .reduce((sum: number, char: string) => sum + char.charCodeAt(0), 0);
+
+  // Use modulo to get an index within our array bounds
+  const index = charSum % GRADIENT_BACKGROUNDS.length;
+
+  return GRADIENT_BACKGROUNDS[index];
+};
+
+// AssistantAvatar component similar to web app
+const AssistantAvatar = ({ assistant, size = 32 }: { assistant: any; size?: number }) => {
+  const [imageError, setImageError] = useState(false);
+  const gradientColors = getGradientBackground(assistant);
+
+  const handleImageError = () => {
+    setImageError(true);
+  };
+
+  if (!assistant || (!assistant.avatar_url && imageError)) {
+    return (
+      <View 
+        style={[
+          styles.avatarFallback, 
+          { 
+            width: size, 
+            height: size, 
+            borderRadius: size / 2,
+          }
+        ]}
+      >
+        <Bot size={size * 0.6} color="#ffffff" />
+      </View>
+    );
+  }
+
+  if (assistant.avatar_url && !imageError) {
+    return (
+      <Image
+        source={{ uri: assistant.avatar_url }}
+        style={[
+          styles.avatarImage,
+          { 
+            width: size, 
+            height: size, 
+            borderRadius: size / 2,
+          }
+        ]}
+        onError={handleImageError}
+      />
+    );
+  }
+
+  // Fallback with gradient and initials
+  return (
+    <View 
+      style={[
+        styles.avatarFallback,
+        { 
+          width: size, 
+          height: size, 
+          borderRadius: size / 2,
+          backgroundColor: gradientColors[0], // Use first color as fallback
+        }
+      ]}
+    >
+      <Text style={[styles.avatarInitial, { fontSize: size * 0.4 }]}>
+        {assistant?.name?.[0] || "A"}
+      </Text>
+    </View>
+  );
+};
+
 export default function ChatInterface({ 
   onMenuPress, 
   title,
@@ -105,10 +207,29 @@ export default function ChatInterface({
 }: ChatInterfaceProps) {
   const [selectedModel, setSelectedModel] = useState(modelOptions[0]);
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [showAssistantSelector, setShowAssistantSelector] = useState(false);
   const [activeMessageButtons, setActiveMessageButtons] = useState<string | null>(null);
   
   const scrollViewRef = useRef<ScrollView>(null);
 
+  // Get assistant store data
+  const { 
+    assistants, 
+    currentAssistant, 
+    setCurrentAssistant,
+    initializeAssistants 
+  } = useAssistantStore();
+
+  // Sync selectedModel with currentAssistant's model
+  useEffect(() => {
+    if (currentAssistant?.model) {
+      const matchingModel = modelOptions.find(option => option.model === currentAssistant.model);
+      if (matchingModel && matchingModel.id !== selectedModel.id) {
+        console.log(`🔄 [ChatInterface] Syncing selectedModel to assistant model: ${currentAssistant.model}`);
+        setSelectedModel(matchingModel);
+      }
+    }
+  }, [currentAssistant?.model, modelOptions, selectedModel.id]);
 
 
   const {
@@ -202,6 +323,22 @@ export default function ChatInterface({
       Alert.alert('Error', 'Failed to rerun message');
     }
   }, [messages, selectedModel, sendMessage]);
+
+  const handleAssistantSelect = useCallback(async (assistant: any) => {
+    try {
+      console.log('🤖 [ChatInterface] Switching to assistant:', assistant.name);
+      setCurrentAssistant(assistant);
+      setShowAssistantSelector(false);
+      
+      // Also call switchModel to update the backend with the assistant's model
+      if (switchModel) {
+        await switchModel(assistant.model);
+      }
+    } catch (error) {
+      console.error('❌ [ChatInterface] Failed to switch assistant:', error);
+      Alert.alert('Error', 'Failed to switch assistant. Please try again.');
+    }
+  }, [setCurrentAssistant, switchModel]);
 
   const handleShareMessage = useCallback((message: any) => {
     try {
@@ -430,6 +567,12 @@ export default function ChatInterface({
     // Check if this message should show buttons
     const showButtons = activeMessageButtons === message.id;
 
+    // Extract tool data from the message
+    const toolData = extractToolData(message);
+    const imageToolData = extractSpecificToolData(message, 'imageGen');
+    const imageData = imageToolData?.hasImages && imageToolData.images?.length > 0 ? imageToolData.images[0] : null;
+    const canvasData = undefined; // Canvas extraction not yet implemented in iOS
+
     return (
       <View 
         key={message.id} 
@@ -445,12 +588,12 @@ export default function ChatInterface({
         {!isUser && (
           <View style={styles.assistantMessageLayout}>
             {/* Provider Avatar for assistant messages */}
-            <View style={styles.providerAvatarContainer}>
+            <View style={styles.providerIconWrapper}>
               <ProviderAvatar
                 message={message}
                 isStreaming={isStreaming}
                 hasContent={message.content && message.content.trim().length > 0}
-                size={20}
+                size={18}
               />
             </View>
 
@@ -475,6 +618,16 @@ export default function ChatInterface({
                     <FileAttachments files={message.files} messageId={message.id} />
                   </View>
                 )}
+                
+                {/* Generated images for assistant messages */}
+                {imageData && (
+                  <View style={styles.messageImageAttachments}>
+                    <ImagePreview 
+                      imageData={imageData} 
+                      onImageClick={handleImageClick}
+                    />
+                  </View>
+                )}
               </View>
 
               {/* Action buttons for assistant messages */}
@@ -492,9 +645,9 @@ export default function ChatInterface({
                 firecrawlSearchData={undefined}
                 onSourcesClick={handleSourcesClick}
                 hasFileAttachments={hasFileAttachments}
-                dalleImageData={undefined}
+                dalleImageData={imageData}
                 onImageClick={handleImageClick}
-                canvasData={undefined}
+                canvasData={canvasData}
                 onCanvasClick={handleCanvasClick}
                 previousMessageHasDeepResearch={false}
                 previousMessageFirecrawlData={undefined}
@@ -604,6 +757,54 @@ export default function ChatInterface({
     </Modal>
   );
 
+  const renderAssistantSelector = () => (
+    <Modal
+      visible={showAssistantSelector}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setShowAssistantSelector(false)}
+    >
+      <TouchableOpacity 
+        style={styles.modalOverlay}
+        activeOpacity={1}
+        onPress={() => setShowAssistantSelector(false)}
+      >
+        <View style={styles.assistantSelectorContainer}>
+          <Text style={styles.assistantSelectorTitle}>Choose Assistant</Text>
+          <ScrollView 
+            style={styles.assistantOptionsScroll}
+            showsVerticalScrollIndicator={true}
+            contentContainerStyle={styles.assistantOptionsContent}
+          >
+            {assistants?.map((assistant) => (
+              <TouchableOpacity
+                key={assistant.id}
+                style={[
+                  styles.assistantOption,
+                  currentAssistant?.id === assistant.id && styles.selectedAssistantOption
+                ]}
+                onPress={() => handleAssistantSelect(assistant)}
+              >
+                <View style={styles.assistantAvatarContainer}>
+                  <AssistantAvatar assistant={assistant} size={32} />
+                </View>
+                <View style={styles.assistantInfo}>
+                  <Text style={styles.assistantName}>{assistant.name}</Text>
+                  <Text style={styles.assistantModel}>{assistant.model}</Text>
+                </View>
+                {currentAssistant?.id === assistant.id && (
+                  <View style={styles.assistantSelectedIndicator}>
+                    <Check size={16} color="#10b981" />
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
+
   const renderNetworkStatus = () => {
     if (isConnected) return null;
 
@@ -631,14 +832,22 @@ export default function ChatInterface({
             style={styles.modelSelector}
             onPress={() => setShowModelSelector(true)}
           >
-            <Text style={styles.modelSelectorText}>
-              {selectedModel.name} <Text style={styles.modelVersion}>{selectedModel.version}</Text>
-            </Text>
+            <View style={styles.modelSelectorContent}>
+              <View style={styles.providerIconContainer}>
+                {getProviderIcon(selectedModel.provider, 16)}
+              </View>
+              <Text style={styles.modelSelectorText}>
+                {selectedModel.name}
+              </Text>
+            </View>
             <ChevronDown size={16} color="#9ca3af" />
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.headerButton}>
-            <MoreHorizontal size={20} color="#ffffff" />
+          <TouchableOpacity 
+            style={styles.headerButton}
+            onPress={() => setShowAssistantSelector(true)}
+          >
+            <AssistantAvatar assistant={currentAssistant} size={28} />
           </TouchableOpacity>
         </View>
       )}
@@ -685,6 +894,7 @@ export default function ChatInterface({
 
       {/* Model Selector Modal */}
       {renderModelSelector()}
+      {renderAssistantSelector()}
     </View>
   );
 }
@@ -728,15 +938,23 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     gap: 8,
   },
+  modelSelectorContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  providerIconContainer: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#525252',
+  },
   modelSelectorText: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
-  },
-  modelVersion: {
-    color: '#9ca3af',
-    fontSize: 14,
-    fontWeight: '400',
   },
   headerButton: {
     padding: 8,
@@ -919,15 +1137,9 @@ const styles = StyleSheet.create({
     paddingLeft: 8,
     paddingRight: 8,
   },
-  providerAvatarContainer: {
+  providerIconWrapper: {
     marginRight: 12,
-    marginTop: 4,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#1f2937',
+    marginTop: 16, // Push avatar down to align with first line of text
   },
   assistantMessageContent: {
     flex: 1,
@@ -952,5 +1164,85 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     maxWidth: '85%',
     alignSelf: 'flex-end',
+  },
+  avatarFallback: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#525252', // Default background for fallback
+  },
+  avatarImage: {
+    resizeMode: 'cover',
+  },
+  avatarInitial: {
+    color: '#ffffff',
+  },
+  assistantSelectorContainer: {
+    backgroundColor: '#353535',
+    borderRadius: 12,
+    padding: 16,
+    margin: 20,
+    minWidth: 280,
+    maxHeight: '70%',
+    borderWidth: 1,
+    borderColor: '#525252',
+  },
+  assistantSelectorTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  assistantOptionsScroll: {
+    maxHeight: 400,
+  },
+  assistantOptionsContent: {
+    paddingBottom: 8,
+  },
+  assistantOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginVertical: 1,
+    gap: 12,
+  },
+  selectedAssistantOption: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    borderWidth: 1,
+    borderColor: '#10b981',
+  },
+  assistantAvatarContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1f2937',
+  },
+  assistantInfo: {
+    flex: 1,
+  },
+  assistantName: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  assistantModel: {
+    color: '#9ca3af',
+    fontSize: 12,
+    fontWeight: '400',
+  },
+  assistantSelectedIndicator: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  messageImageAttachments: {
+    marginTop: 8,
   },
 }); 

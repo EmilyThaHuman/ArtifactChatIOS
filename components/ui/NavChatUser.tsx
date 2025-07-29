@@ -23,6 +23,7 @@ import {
   X,
   Trash2,
 } from 'lucide-react-native';
+import SettingsSheet from './SettingsSheet';
 
 interface UserProfile {
   id: string;
@@ -69,6 +70,7 @@ export function NavChatUser({
 }: NavChatUserProps) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isSettingsSheetOpen, setIsSettingsSheetOpen] = useState(false);
 
   // Get display name and avatar
   const displayName = user?.full_name || 
@@ -103,15 +105,17 @@ export function NavChatUser({
     onNotificationsOpen?.();
   }, [isNotificationsOpen, onNotificationsOpen]);
 
-  // Handle settings
+  // Handle settings - now opens the comprehensive settings sheet
   const handleSettings = useCallback(() => {
     setIsUserMenuOpen(false);
+    setIsSettingsSheetOpen(true);
     onSettingsOpen?.();
   }, [onSettingsOpen]);
 
   // Handle profile
   const handleProfile = useCallback(() => {
     setIsUserMenuOpen(false);
+    setIsSettingsSheetOpen(true);
     onProfileOpen?.();
   }, [onProfileOpen]);
 
@@ -407,6 +411,14 @@ export function NavChatUser({
       {/* Modals */}
       {renderUserMenuModal()}
       {renderNotificationsModal()}
+
+      {/* Settings Sheet */}
+      <SettingsSheet
+        isOpen={isSettingsSheetOpen}
+        onClose={() => setIsSettingsSheetOpen(false)}
+        defaultTab="profile"
+        user={user}
+      />
     </View>
   );
 }

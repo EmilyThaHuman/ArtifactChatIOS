@@ -207,6 +207,17 @@ export default function SingleWorkspacePage({ workspaceId }: SingleWorkspacePage
     initializeAssistants 
   } = useAssistantStore();
 
+  // Sync selectedModel with currentAssistant's model
+  useEffect(() => {
+    if (currentAssistant?.model) {
+      const matchingModel = modelOptions.find(option => option.model === currentAssistant.model);
+      if (matchingModel && matchingModel.id !== selectedModel.id) {
+        console.log(`🔄 [SingleWorkspacePage] Syncing selectedModel to assistant model: ${currentAssistant.model}`);
+        setSelectedModel(matchingModel);
+      }
+    }
+  }, [currentAssistant?.model, modelOptions, selectedModel.id]);
+
   // Load workspace data
   useEffect(() => {
     if (workspaceId && user) {
@@ -529,9 +540,14 @@ export default function SingleWorkspacePage({ workspaceId }: SingleWorkspacePage
             activeOpacity={0.7}
             onPress={() => setShowModelSelector(true)}
           >
-            <Text style={styles.modelText}>
-              {selectedModel.name}
-            </Text>
+            <View style={styles.modelSelectorContent}>
+              <View style={styles.providerIconContainer}>
+                {getProviderIcon(selectedModel.provider, 16)}
+              </View>
+              <Text style={styles.modelText}>
+                {selectedModel.name}
+              </Text>
+            </View>
             <ChevronDown size={16} color={Colors.textSecondary} />
           </TouchableOpacity>
           
@@ -952,16 +968,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
+  modelSelectorContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  providerIconContainer: {
+    marginRight: 8,
+  },
   modelText: {
     color: Colors.textLight,
     fontSize: 14,
     fontWeight: '600',
-    marginRight: 8,
-  },
-  modelVersion: {
-    color: Colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '400',
   },
   // Modal styles
   modalOverlay: {

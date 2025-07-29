@@ -11,6 +11,7 @@ export interface ToolCall {
     arguments: string;
   };
   isStreaming?: boolean;
+  result?: any; // Tool execution result
 }
 
 export interface ToolResult {

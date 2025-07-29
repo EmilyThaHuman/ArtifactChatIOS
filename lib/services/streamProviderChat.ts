@@ -217,111 +217,134 @@ export class StreamProviderChat {
         supportsVision: modelCapabilities.supportsVision
       });
 
-      // Create update handler for streaming chunks
-      const onUpdate = (chunk: string) => {
-        try {
-          // Check if stream was aborted
-          if (abortController.signal.aborted) {
-            console.log('🛑 [StreamProviderChat] Stream aborted, skipping chunk');
-            return;
+      // Start the stream using BackendProviderService
+      console.log('🚀 [StreamProviderChat] Starting stream with backend provider');
+      
+      await BackendProviderService.streamChatCompletion(
+        streamParams,
+        (chunk: string) => {
+          console.log(`🔄 [StreamProviderChat] Processing chunk:`, {
+            chunkLength: chunk.length,
+            preview: chunk.substring(0, 50),
+            currentContentLength: state.content.length
+          });
+
+          // Process each chunk through delta processing
+          const deltaResult = processStreamDelta({
+            delta: { content: chunk },
+            modelProvider: finalProvider,
+            modelName: params.model,
+            messageId: state.messageId,
+            reasoningState: state.reasoningState,
+            pendingToolCalls: state.pendingToolCalls,
+            bufferingForToolCall: state.bufferingForToolCall,
+            hasDetectedToolCall: state.hasDetectedToolCall,
+            toolCallsFullyAccumulated: state.toolCallsFullyAccumulated,
+            toolChoice: params.tool_choice,
+            contextData: params.contextData
+          });
+
+          console.log(`🔍 [StreamProviderChat] Delta processing result:`, {
+            hasDeltaContent: !!deltaResult.deltaContent,
+            deltaContentLength: deltaResult.deltaContent?.length || 0,
+            hasReasoningContent: !!deltaResult.reasoningDeltaContent,
+            reasoningContentLength: deltaResult.reasoningDeltaContent?.length || 0,
+            hasToolCalls: deltaResult.hasDetectedToolCall,
+            toolCallsCount: deltaResult.pendingToolCalls.length
+          });
+
+          // Update state from processing result
+          state.reasoningState = deltaResult.reasoningState;
+          state.pendingToolCalls = deltaResult.pendingToolCalls;
+          state.bufferingForToolCall = deltaResult.bufferingForToolCall;
+          state.hasDetectedToolCall = deltaResult.hasDetectedToolCall;
+          state.toolCallsFullyAccumulated = deltaResult.toolCallsFullyAccumulated;
+
+          // Handle reasoning content
+          if (deltaResult.reasoningDeltaContent) {
+            console.log(`🧠 [StreamProviderChat] Reasoning update: ${deltaResult.reasoningDeltaContent.length} chars`);
+            callbacks.onReasoningUpdate?.(deltaResult.reasoningDeltaContent);
           }
 
-          // Parse chunk as JSON (SSE format from backend)
-          let deltaData: any;
-          try {
-            deltaData = JSON.parse(chunk);
-          } catch (parseError) {
-            console.warn('⚠️ [StreamProviderChat] Failed to parse chunk:', chunk.substring(0, 100));
-            return;
-          }
+          // Handle regular content
+          if (deltaResult.deltaContent) {
+            const beforeLength = state.content.length;
+            state.content += deltaResult.deltaContent;
+            state.metadata.tokenCount = (state.metadata.tokenCount || 0) + 1;
 
-          // Handle different chunk types from backend SSE
-          if (deltaData.type === 'connection') {
-            console.log('🔌 [StreamProviderChat] Connection established:', deltaData.sessionId);
-            return;
-          }
-
-          if (deltaData.type === 'error') {
-            const error = new Error(deltaData.error || 'Streaming error');
-            console.error('❌ [StreamProviderChat] Stream error:', error);
-            state.error = error;
-            callbacks.onError?.(error);
-            return;
-          }
-
-          if (deltaData.type === 'complete') {
-            console.log('✅ [StreamProviderChat] Stream completed:', deltaData.sessionId);
-            state.isCompleted = true;
-            this.finalizeStream(state, callbacks);
-            return;
-          }
-
-          if (deltaData.type === 'chunk' && deltaData.chunk) {
-            // Process the actual delta chunk
-            const processingResult = processStreamDelta({
-              delta: deltaData.chunk,
-              modelProvider: finalProvider,
-              modelName: params.model,
-              messageId,
-              reasoningState: state.reasoningState,
-              pendingToolCalls: state.pendingToolCalls,
-              bufferingForToolCall: state.bufferingForToolCall,
-              hasDetectedToolCall: state.hasDetectedToolCall,
-              toolCallsFullyAccumulated: state.toolCallsFullyAccumulated,
-              toolChoice: params.tool_choice,
-              contextData: params.contextData
+            console.log(`📝 [StreamProviderChat] Content update:`, {
+              deltaLength: deltaResult.deltaContent.length,
+              beforeLength,
+              afterLength: state.content.length,
+              preview: deltaResult.deltaContent.substring(0, 30)
             });
 
-            // Update state from processing result
-            this.updateStateFromProcessingResult(state, processingResult);
+            callbacks.onUpdate?.(state.content, state);
+          } else {
+            console.log(`⚠️ [StreamProviderChat] No delta content in chunk`);
+          }
 
-            // Handle content updates
-            if (processingResult.deltaContent) {
-              state.content += processingResult.deltaContent;
-              state.metadata.tokenCount++;
-
-              // Call update callback
-              callbacks.onUpdate?.(state.content, state);
-            }
-
-            // Handle reasoning updates
-            if (processingResult.reasoningDeltaContent) {
-              callbacks.onReasoningUpdate?.(processingResult.reasoningDeltaContent);
-            }
-
-            // Handle reasoning completion
-            if (processingResult.reasoningState.reasoningDuration !== state.reasoningState.reasoningDuration) {
-              callbacks.onReasoningComplete?.(
-                processingResult.reasoningState.reasoningContent,
-                processingResult.reasoningState.reasoningDuration
-              );
-            }
-
-            // Handle tool calls
-            if (processingResult.hasDetectedToolCall && processingResult.pendingToolCalls.length > 0) {
-              for (const toolCall of processingResult.pendingToolCalls) {
-                callbacks.onToolCall?.(toolCall);
-              }
-            }
-
-            // Check if stream is completed
-            if (processingResult.streamCompleted) {
-              state.isCompleted = true;
-              this.finalizeStream(state, callbacks);
+          // Handle tool calls
+          if (deltaResult.hasDetectedToolCall && deltaResult.pendingToolCalls.length > 0) {
+            console.log(`🛠️ [StreamProviderChat] Tool calls detected:`, {
+              toolCallCount: deltaResult.pendingToolCalls.length,
+              toolNames: deltaResult.pendingToolCalls.map(tc => tc.function?.name)
+            });
+            for (const toolCall of deltaResult.pendingToolCalls) {
+              callbacks.onToolCall?.(toolCall);
             }
           }
-        } catch (updateError) {
-          console.error('❌ [StreamProviderChat] Error processing chunk:', updateError);
-          state.error = updateError as Error;
-          callbacks.onError?.(updateError as Error);
-        }
-      };
+        },
+        (finalContent: string) => {
+          console.log('✅ [StreamProviderChat] Stream completed:', {
+            messageId: state.messageId,
+            finalContentLength: finalContent.length,
+            stateContentLength: state.content.length,
+            toolCallsCount: state.pendingToolCalls.length,
+            finalPreview: finalContent.substring(0, 100),
+            statePreview: state.content.substring(0, 100)
+          });
 
-      // Start the stream
-      await this.backendService.createChatCompletionStream(
-        streamParams,
-        onUpdate,
-        { signal: abortController.signal }
+          // Finalize reasoning if needed
+          if (state.reasoningState.reasoningContent) {
+            const reasoningDuration = state.reasoningState.reasoningStartTime 
+              ? Date.now() - state.reasoningState.reasoningStartTime 
+              : undefined;
+            
+            console.log('🧠 [StreamProviderChat] Finalizing reasoning:', {
+              reasoningLength: state.reasoningState.reasoningContent.length,
+              duration: reasoningDuration
+            });
+            
+            callbacks.onReasoningComplete?.(state.reasoningState.reasoningContent, reasoningDuration);
+            
+            // Update state with reasoning info
+            state.reasoningState = {
+              ...state.reasoningState,
+              reasoningDuration
+            };
+          }
+
+          // Use the accumulated content from state, not the finalContent parameter
+          // This ensures we have all the processed delta content
+          const actualContent = state.content || finalContent;
+          
+          console.log('📤 [StreamProviderChat] Calling onComplete with:', {
+            actualContentLength: actualContent.length,
+            preview: actualContent.substring(0, 100)
+          });
+
+          state.content = actualContent;
+          state.isCompleted = true;
+          
+          callbacks.onComplete?.(actualContent, state);
+        },
+        (error: any) => {
+          console.error('❌ [StreamProviderChat] Stream error:', error);
+          state.error = error;
+          callbacks.onError?.(error);
+        },
+        options?.signal
       );
 
       // If we reach here without completion, mark as completed
@@ -437,7 +460,12 @@ export class StreamProviderChat {
 
     const toolResults: any[] = [];
 
-    for (const toolCall of state.pendingToolCalls) {
+    // Create a map to track tool call results
+    const toolCallResultsMap = new Map<string, any>();
+
+    for (let i = 0; i < state.pendingToolCalls.length; i++) {
+      const toolCall = state.pendingToolCalls[i];
+      
       try {
         console.log(`🔧 [StreamProviderChat] Executing tool: ${toolCall.function?.name}`);
 
@@ -446,7 +474,7 @@ export class StreamProviderChat {
         // Handle built-in tools first
         if (toolCall.function?.name === 'web_search') {
           result = await this.handleWebSearchTool(toolCall);
-        } else if (toolCall.function?.name === 'generate_image') {
+        } else if (toolCall.function?.name === 'image_gen' || toolCall.function?.name === 'generate_image') {
           result = await this.handleImageGenerationTool(toolCall);
         } else if (this.toolRegistry) {
           // Use external tool registry for other tools
@@ -472,7 +500,38 @@ export class StreamProviderChat {
           };
         }
 
+        // Store result for separate tool messages
         toolResults.push(result);
+
+        // Extract the actual tool execution result from the wrapped result
+        let actualToolResult = result;
+        
+        // For image generation and web search, extract the nested result
+        if (result.result && typeof result.result === 'object') {
+          actualToolResult = result.result;
+        } else if (result.content && typeof result.content === 'string') {
+          try {
+            // Try to parse JSON content for tool results
+            const parsedContent = JSON.parse(result.content);
+            if (parsedContent && typeof parsedContent === 'object') {
+              actualToolResult = parsedContent;
+            }
+          } catch {
+            // If parsing fails, use the original result
+            actualToolResult = result;
+          }
+        }
+
+        // Attach the result directly to the tool call (matching database structure)
+        state.pendingToolCalls[i] = {
+          ...toolCall,
+          result: actualToolResult
+        };
+
+        // Store in map for quick lookup
+        toolCallResultsMap.set(toolCall.id, actualToolResult);
+
+        // Notify callback about tool completion
         callbacks.onToolCallComplete?.(result);
 
         console.log(`✅ [StreamProviderChat] Tool completed: ${toolCall.function?.name}`);
@@ -491,19 +550,38 @@ export class StreamProviderChat {
           name: toolCall.function?.name
         };
 
+        // Store error result for separate tool messages
         toolResults.push(errorResult);
+
+        // Attach error result to the tool call
+        const errorToolResult = {
+          error: (toolError as Error).message || 'Tool execution failed',
+          tool_name: toolCall.function?.name,
+          success: false
+        };
+
+        state.pendingToolCalls[i] = {
+          ...toolCall,
+          result: errorToolResult
+        };
+
+        // Store in map for quick lookup
+        toolCallResultsMap.set(toolCall.id, errorToolResult);
+
         callbacks.onToolCallComplete?.(errorResult);
       }
     }
 
-    // Store tool results in state metadata
+    // Store tool results in state metadata for backward compatibility
     state.metadata.toolResults = toolResults;
+    state.metadata.toolCallResults = toolCallResultsMap;
 
     console.log('🏆 [StreamProviderChat] All tool calls completed:', {
       messageId: state.messageId,
       totalTools: state.pendingToolCalls.length,
-      successfulTools: toolResults.filter(r => !r.content.includes('error')).length,
-      failedTools: toolResults.filter(r => r.content.includes('error')).length
+      successfulTools: toolResults.filter(r => !r.content?.includes('error')).length,
+      failedTools: toolResults.filter(r => r.content?.includes('error')).length,
+      toolCallsWithResults: state.pendingToolCalls.filter(tc => tc.result).length
     });
   }
 

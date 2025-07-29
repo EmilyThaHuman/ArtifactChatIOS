@@ -58,20 +58,20 @@ export class ApiClient {
   }
 
   /**
-   * Make a streaming request for chat completions
+   * Stream data from an endpoint (React Native compatible)
    */
   static async stream(
-    endpoint: string, 
-    data: any, 
+    endpoint: string,
+    data: any,
     onChunk: (chunk: string) => void,
-    onComplete?: (fullResponse: string) => void,
-    onError?: (error: Error) => void,
+    onComplete?: (content: string) => void,
+    onError?: (error: ApiError) => void,
     signal?: AbortSignal
   ): Promise<string> {
     const url = `${this.baseURL}${endpoint}`;
     
     console.log(`🌊 [API] STREAM ${url}`);
-    
+
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -93,11 +93,108 @@ export class ApiClient {
         );
       }
 
+      // Check if streaming is supported
       const reader = response.body?.getReader();
       if (!reader) {
-        throw new Error('Response body is not readable');
+        console.log('🔄 [API] Streaming not supported, falling back to full response');
+        
+        // Fallback: Read the full response and simulate streaming
+        const fullResponse = await response.text();
+        console.log('📥 [API] Full response received:', {
+          length: fullResponse.length,
+          preview: fullResponse.substring(0, 200),
+          contentType: response.headers.get('content-type')
+        });
+        
+        // Try to parse as SSE format
+        const lines = fullResponse.split('\n');
+        let accumulatedContent = '';
+        let processedChunks = 0;
+        
+        console.log('🔍 [API] Processing response lines:', lines.length);
+        
+        for (const line of lines) {
+          if (line.trim() === '') continue;
+          
+          console.log('📝 [API] Processing line:', line.substring(0, 100));
+          
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            
+            if (data === '[DONE]') {
+              console.log('🏁 [API] Received [DONE] signal');
+              onComplete?.(accumulatedContent);
+              return accumulatedContent;
+            }
+
+            try {
+              const parsed = JSON.parse(data);
+              console.log('✅ [API] Parsed chunk:', {
+                type: parsed.type,
+                sessionId: parsed.sessionId,
+                hasChunk: !!parsed.chunk,
+                hasChoices: !!parsed.chunk?.choices?.length,
+                hasContent: !!parsed.chunk?.choices?.[0]?.delta?.content,
+                rawStructure: Object.keys(parsed)
+              });
+              
+              // Handle different message types from backend
+              if (parsed.type === 'connection') {
+                console.log('🔌 [API] Connection established:', parsed.sessionId);
+                continue; // Don't process connection messages as content
+              }
+              
+              if (parsed.type === 'complete') {
+                console.log('🏁 [API] Received completion signal');
+                onComplete?.(accumulatedContent);
+                return accumulatedContent;
+              }
+              
+              if (parsed.type === 'chunk' && parsed.chunk) {
+                // Extract content from the wrapped chunk
+                const content = parsed.chunk?.choices?.[0]?.delta?.content || '';
+                
+                if (content) {
+                  accumulatedContent += content;
+                  processedChunks++;
+                  console.log(`📤 [API] Chunk ${processedChunks}: "${content.substring(0, 30)}..."`);
+                  onChunk(content);
+                  
+                  // Add small delay to simulate streaming
+                  await new Promise(resolve => setTimeout(resolve, 50));
+                } else {
+                  console.log('⚠️ [API] Chunk has no content:', {
+                    hasChoices: !!parsed.chunk?.choices?.length,
+                    deltaKeys: parsed.chunk?.choices?.[0]?.delta ? Object.keys(parsed.chunk.choices[0].delta) : 'no delta',
+                    finishReason: parsed.chunk?.choices?.[0]?.finish_reason
+                  });
+                }
+              } else {
+                console.log('⚠️ [API] Unknown chunk type or missing chunk data:', {
+                  type: parsed.type,
+                  hasChunk: !!parsed.chunk,
+                  keys: Object.keys(parsed)
+                });
+              }
+            } catch (parseError) {
+              console.warn('❌ [API] Failed to parse SSE data:', data.substring(0, 100), parseError);
+            }
+          } else {
+            console.log('ℹ️ [API] Non-data line:', line.substring(0, 100));
+          }
+        }
+        
+        console.log('📊 [API] Processing complete:', {
+          totalLines: lines.length,
+          processedChunks,
+          accumulatedLength: accumulatedContent.length
+        });
+        
+        onComplete?.(accumulatedContent);
+        return accumulatedContent;
       }
 
+      // Use streaming if available
       const decoder = new TextDecoder();
       let accumulatedContent = '';
       let buffer = '';
@@ -128,11 +225,33 @@ export class ApiClient {
 
               try {
                 const parsed = JSON.parse(data);
-                const content = parsed.choices?.[0]?.delta?.content || '';
                 
-                if (content) {
-                  accumulatedContent += content;
-                  onChunk(content);
+                // Handle backend's custom SSE format
+                if (parsed.type === 'connection') {
+                  console.log('🔌 [API] Connection established (native):', parsed.sessionId);
+                  continue;
+                }
+                
+                if (parsed.type === 'complete') {
+                  console.log('🏁 [API] Received completion signal (native)');
+                  onComplete?.(accumulatedContent);
+                  return accumulatedContent;
+                }
+                
+                if (parsed.type === 'chunk' && parsed.chunk) {
+                  const content = parsed.chunk?.choices?.[0]?.delta?.content || '';
+                  
+                  if (content) {
+                    accumulatedContent += content;
+                    onChunk(content);
+                  }
+                } else {
+                  // Fallback: try direct OpenAI format for compatibility
+                  const content = parsed.choices?.[0]?.delta?.content || '';
+                  if (content) {
+                    accumulatedContent += content;
+                    onChunk(content);
+                  }
                 }
               } catch (parseError) {
                 console.warn('Failed to parse SSE data:', data);

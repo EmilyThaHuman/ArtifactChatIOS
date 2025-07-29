@@ -38,6 +38,7 @@ export interface ToolCall {
     arguments: string;
   };
   output?: any;
+  result?: any; // Tool execution result
 }
 
 /**
@@ -46,8 +47,10 @@ export interface ToolCall {
 export function hasToolData(message: Message): boolean {
   if (!message) return false;
 
-  // Check for tool calls in metadata
-  if (message.metadata?.tool_calls && message.metadata.tool_calls.length > 0) {
+  // Check for tool calls in both locations
+  if ((message.toolCalls && message.toolCalls.length > 0) ||
+      (message.metadata?.tool_calls && message.metadata.tool_calls.length > 0) ||
+      (message.metadata?.toolCalls && message.metadata.toolCalls.length > 0)) {
     return true;
   }
 
@@ -129,16 +132,23 @@ export function extractSpecificToolData(
  * Extract tool calls data from message
  */
 function extractToolCallsData(message: Message): ToolCall[] {
-  if (!message?.metadata?.tool_calls) {
+  // Check both locations where tool calls might be stored
+  let toolCallsArray = null;
+  
+  if (message?.toolCalls && Array.isArray(message.toolCalls)) {
+    toolCallsArray = message.toolCalls;
+  } else if (message?.metadata?.tool_calls && Array.isArray(message.metadata.tool_calls)) {
+    toolCallsArray = message.metadata.tool_calls;
+  } else if (message?.metadata?.toolCalls && Array.isArray(message.metadata.toolCalls)) {
+    toolCallsArray = message.metadata.toolCalls;
+  }
+
+  if (!toolCallsArray || toolCallsArray.length === 0) {
     return [];
   }
 
   try {
-    const toolCalls = Array.isArray(message.metadata.tool_calls) 
-      ? message.metadata.tool_calls 
-      : [];
-
-    return toolCalls.map((call: any) => ({
+    return toolCallsArray.map((call: any) => ({
       id: call.id || crypto.randomUUID(),
       type: call.type || 'function',
       function: {
@@ -146,6 +156,7 @@ function extractToolCallsData(message: Message): ToolCall[] {
         arguments: call.function?.arguments || '{}',
       },
       output: call.output,
+      result: call.result, // Tool execution result
     }));
   } catch (error) {
     console.error('Error extracting tool calls data:', error);
@@ -240,7 +251,7 @@ function extractImageData(message: Message, isUser: boolean): ImageToolData {
     images: [],
   };
 
-  if (!message?.metadata) {
+  if (!message?.metadata && !message?.toolCalls) {
     return defaultData;
   }
 
@@ -248,7 +259,7 @@ function extractImageData(message: Message, isUser: boolean): ImageToolData {
     let images: GeneratedImage[] = [];
 
     // Check for image data in metadata
-    if (message.metadata.imageData) {
+    if (message.metadata?.imageData) {
       const imageData = message.metadata.imageData;
       if (imageData.url) {
         images.push({
@@ -258,20 +269,71 @@ function extractImageData(message: Message, isUser: boolean): ImageToolData {
           metadata: imageData,
         });
       }
-    } else if (message.metadata.generatedImages) {
+    } else if (message.metadata?.generatedImages) {
       images = message.metadata.generatedImages.map((img: any) => ({
         url: img.url || '',
         name: img.name || 'Generated Image',
         prompt: img.prompt || '',
         metadata: img,
       }));
-    } else if (message.metadata.toolOutputs) {
-      // Look for image generation in tool outputs
+    }
+    
+    // Check for image generation in tool calls (both locations)
+    const toolCalls = message.toolCalls || message.metadata?.tool_calls || message.metadata?.toolCalls;
+    if (toolCalls && Array.isArray(toolCalls)) {
+      for (const toolCall of toolCalls) {
+        if (toolCall.function?.name === 'image_gen' || 
+            toolCall.function?.name === 'dalle3_image_generation' ||
+            toolCall.function?.name === 'generate_image') {
+          
+          if (toolCall.output) {
+            try {
+              const parsedOutput = typeof toolCall.output === 'string' 
+                ? JSON.parse(toolCall.output) 
+                : toolCall.output;
+              
+              // Handle different output formats
+              let imageUrl = null;
+              let prompt = '';
+              let name = 'Generated Image';
+              
+              if (parsedOutput.result?.data?.url) {
+                imageUrl = parsedOutput.result.data.url;
+                prompt = parsedOutput.result.data.prompt || '';
+                name = parsedOutput.result.data.name || 'Generated Image';
+              } else if (parsedOutput.data?.[0]?.url) {
+                imageUrl = parsedOutput.data[0].url;
+                prompt = parsedOutput.data[0].revised_prompt || parsedOutput.data[0].prompt || '';
+                name = parsedOutput.data[0].name || 'Generated Image';
+              } else if (parsedOutput.url) {
+                imageUrl = parsedOutput.url;
+                prompt = parsedOutput.prompt || '';
+                name = parsedOutput.name || 'Generated Image';
+              }
+              
+              if (imageUrl) {
+                images.push({
+                  url: imageUrl,
+                  name,
+                  prompt,
+                  metadata: parsedOutput,
+                });
+              }
+            } catch (e) {
+              console.warn('Failed to parse image generation output:', e);
+            }
+          }
+        }
+      }
+    }
+    
+    // Also check legacy toolOutputs format
+    if (message.metadata?.toolOutputs) {
       const imageOutput = message.metadata.toolOutputs.find(
         (output: any) => output.type === 'image_gen' || output.function?.name === 'image_gen'
       );
       
-      if (imageOutput?.output) {
+      if (imageOutput?.output && images.length === 0) {
         try {
           const parsedOutput = typeof imageOutput.output === 'string' 
             ? JSON.parse(imageOutput.output) 
@@ -295,7 +357,7 @@ function extractImageData(message: Message, isUser: boolean): ImageToolData {
       return {
         hasImages: true,
         images,
-        metadata: message.metadata.imageData || message.metadata.generatedImages,
+        metadata: message.metadata?.imageData || message.metadata?.generatedImages,
       };
     }
 
@@ -321,7 +383,11 @@ export function useToolData(message: Message, isUser = false): ToolData {
  * Check if message has tool calls (for loading states)
  */
 export function useHasToolCalls(message: Message): boolean {
-  return !!(message?.metadata?.tool_calls && message.metadata.tool_calls.length > 0);
+  return !!(
+    (message?.toolCalls && message.toolCalls.length > 0) ||
+    (message?.metadata?.tool_calls && message.metadata.tool_calls.length > 0) ||
+    (message?.metadata?.toolCalls && message.metadata.toolCalls.length > 0)
+  );
 }
 
 /**

@@ -1,6 +1,17 @@
 import React, { memo } from 'react';
 import { View, StyleSheet, Animated } from 'react-native';
 import { OpenAIIcon } from './OpenAIIcon';
+import {
+  ClaudeIcon,
+  CohereIcon,
+  DeepSeekIcon,
+  GeminiIcon,
+  GroqIcon,
+  GrokIcon,
+  MistralIcon,
+  PerplexityIcon,
+  OpenRouterIcon,
+} from './icons';
 
 interface ProviderAvatarProps {
   message: any;
@@ -48,40 +59,40 @@ const determineProviderFromModel = (model: string | undefined): string => {
   return 'openai';
 };
 
-// Provider icon component (simplified for React Native)
-const getProviderIcon = (provider: string, size: number = 12) => {
-  // For now, we'll use the OpenAI icon for all providers
-  // In a full implementation, you'd want to create SVG components for each provider
+// Provider icon component matching model selector styles
+const getProviderIcon = (provider: string, size: number = 14) => {
+  const iconSize = size;
+  
   switch (provider) {
     case 'deepseek':
-      return <OpenAIIcon size={size} color="#015482" />;
+      return <DeepSeekIcon size={iconSize} />; // Use default color
     case 'gemini':
     case 'google':
-      return <OpenAIIcon size={size} color="#1967D2" />;
+      return <GeminiIcon size={iconSize} />; // Use default color
     case 'mistral':
-      return <OpenAIIcon size={size} color="#ff7f00" />;
+      return <MistralIcon size={iconSize} />; // Use default color
     case 'anthropic':
     case 'claude':
-      return <OpenAIIcon size={size} color="#D97757" />;
+      return <ClaudeIcon size={iconSize} />; // Use default color
     case 'groq':
-      return <OpenAIIcon size={size} color="#22c55e" />;
+      return <GroqIcon size={iconSize} color="#ffffff" />; // Explicit white
     case 'xai':
     case 'grok':
-      return <OpenAIIcon size={size} color="#60a5fa" />;
+      return <GrokIcon size={iconSize} color="#ffffff" />; // Explicit white
     case 'cohere':
-      return <OpenAIIcon size={size} color="#14b8a6" />;
+      return <CohereIcon size={iconSize} />; // Use default color
     case 'perplexity':
-      return <OpenAIIcon size={size} color="#ef4444" />;
+      return <PerplexityIcon size={iconSize} />; // Use default color
     case 'openrouter':
-      return <OpenAIIcon size={size} color="#6366f1" />;
+      return <OpenRouterIcon size={iconSize} color="#ffffff" />; // Explicit white
     case 'openai':
     default:
-      return <OpenAIIcon size={size} color="#000000" />;
+      return <OpenAIIcon size={iconSize} color="#ffffff" />; // Explicit white
   }
 };
 
 // Pulse loader for loading states
-const PulseLoader = ({ size = 12 }: { size?: number }) => {
+const PulseLoader = ({ size = 20 }: { size?: number }) => {
   const pulseAnim = React.useRef(new Animated.Value(0.4)).current;
 
   React.useEffect(() => {
@@ -109,8 +120,9 @@ const PulseLoader = ({ size = 12 }: { size?: number }) => {
       style={[
         styles.pulseLoader,
         {
-          width: size,
-          height: size,
+          width: size * 0.6,
+          height: size * 0.6,
+          borderRadius: (size * 0.6) / 2,
           opacity: pulseAnim,
         },
       ]}
@@ -124,37 +136,71 @@ const ProviderAvatar = memo(({
   hasContent = true,
   size = 20,
 }: ProviderAvatarProps) => {
-  // Determine provider from message model
-  const model = message?.model || message?.metadata?.model;
-  const provider = message?.metadata?.provider || 
-                  message?.provider || 
-                  determineProviderFromModel(model);
+  // Determine provider with priority to metadata.provider (from thread_message)
+  let provider = message?.metadata?.provider || message?.provider;
+  
+  // If provider is not available or is generic, determine from model
+  if (!provider || provider === 'openai') {
+    const model = message?.model || message?.metadata?.model;
+    if (model) {
+      const modelProvider = determineProviderFromModel(model);
+      // Only override if we found a more specific provider
+      if (modelProvider !== 'openai' || !provider) {
+        provider = modelProvider;
+      }
+    }
+  }
+
+  // Fallback to openai if still no provider
+  if (!provider) {
+    provider = 'openai';
+  }
+
+  // Normalize provider name
+  provider = provider.toLowerCase();
+
+  // Calculate container size and icon size
+  const containerSize = size;
+  const iconSize = Math.round(size * 0.7); // Icon is 70% of container size
 
   // Show pulse loader if streaming and no content yet
   if (isStreaming && !hasContent) {
     return (
-      <View style={[styles.avatarContainer, { width: size, height: size }]}>
-        <PulseLoader size={size * 0.6} />
+      <View style={[
+        styles.providerIconContainer, 
+        { 
+          width: containerSize, 
+          height: containerSize,
+          borderRadius: containerSize / 2,
+        }
+      ]}>
+        <PulseLoader size={containerSize} />
       </View>
     );
   }
 
+  // Return icon in styled container matching model selector
   return (
-    <View style={[styles.avatarContainer, { width: size, height: size }]}>
-      {getProviderIcon(provider, size * 0.6)}
+    <View style={[
+      styles.providerIconContainer, 
+      { 
+        width: containerSize, 
+        height: containerSize,
+        borderRadius: containerSize / 2,
+      }
+    ]}>
+      {getProviderIcon(provider, iconSize)}
     </View>
   );
 });
 
 const styles = StyleSheet.create({
-  avatarContainer: {
+  providerIconContainer: {
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 10,
-    backgroundColor: 'transparent',
+    backgroundColor: '#525252', // Matching model selector background
   },
   pulseLoader: {
-    borderRadius: 50,
     backgroundColor: '#6b7280',
   },
 });
