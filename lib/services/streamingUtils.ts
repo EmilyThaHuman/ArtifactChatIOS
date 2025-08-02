@@ -92,17 +92,12 @@ export async function handleToolCalls(
   toolRegistry: any,
   provider: string = 'openai'
 ): Promise<any> {
-  console.log('🛠️ [handleToolCalls] Processing tool call:', {
-    id: toolCall.id,
-    functionName: toolCall.function?.name,
-    provider,
-  });
-
   try {
     const functionName = toolCall.function?.name;
     const args = toolCall.function?.arguments;
 
     if (!functionName) {
+      console.error('❌ [handleToolCalls] Tool function name is required');
       throw new Error('Tool function name is required');
     }
 
@@ -114,30 +109,64 @@ export async function handleToolCalls(
       } else if (args && typeof args === 'object') {
         parsedArgs = args;
       }
-    } catch (parseError) {
-      console.error('Failed to parse tool arguments:', parseError);
+    } catch (parseError: any) {
+      console.error(`❌ [handleToolCalls] Failed to parse arguments for ${functionName}:`, parseError?.message || 'Parse error');
       throw new Error(`Invalid tool arguments: ${args}`);
     }
 
     // Get tool from registry
-    const tool = toolRegistry.getTool(functionName);
+    const tool = toolRegistry?.getTool(functionName);
     if (!tool) {
+      console.error(`❌ [handleToolCalls] Tool '${functionName}' not found in registry`);
+      
+      // Try to log available tools if registry exists
+      if (toolRegistry && typeof toolRegistry.getStats === 'function') {
+        try {
+          const stats = toolRegistry.getStats();
+          console.error(`❌ [handleToolCalls] Available tools in registry:`, stats);
+        } catch (e: any) {
+          console.error(`❌ [handleToolCalls] Could not get registry stats:`, e?.message || 'Unknown error');
+        }
+      }
+      
       throw new Error(`Tool '${functionName}' not found in registry`);
     }
 
-    console.log(`🔧 [handleToolCalls] Executing tool: ${functionName}`, parsedArgs);
+    console.log(`✅ [handleToolCalls] Tool found in registry: ${functionName}`, {
+      toolType: typeof tool,
+      hasExecute: typeof tool.execute === 'function',
+      toolId: tool.id || 'no-id'
+    });
+
+    console.log(`🔧 [handleToolCalls] Executing tool: ${functionName}`, {
+      parsedArgs,
+      toolInstance: !!tool
+    });
 
     // Execute the tool
     const result = await tool.execute(parsedArgs);
 
-    console.log(`✅ [handleToolCalls] Tool execution completed: ${functionName}`);
+    console.log(`✅ [handleToolCalls] Tool execution completed: ${functionName}`, {
+      resultType: typeof result,
+      resultKeys: result && typeof result === 'object' ? Object.keys(result) : 'non-object',
+      resultPreview: JSON.stringify(result).substring(0, 200)
+    });
 
-    return {
+    const toolResult = {
       tool_call_id: toolCall.id,
       role: 'tool' as const,
       content: JSON.stringify(result),
       name: functionName,
     };
+
+    console.log(`✅ [handleToolCalls] Returning tool result:`, {
+      toolCallId: toolResult.tool_call_id,
+      role: toolResult.role,
+      contentLength: toolResult.content.length,
+      functionName: toolResult.name
+    });
+
+    return toolResult;
 
   } catch (error: any) {
     console.error(`❌ [handleToolCalls] Tool execution failed:`, error);
@@ -196,18 +225,31 @@ export function accumulateToolCalls(
     if (existingIndex >= 0) {
       // Update existing tool call
       const existing = updated[existingIndex];
+      const oldArguments = existing.function?.arguments || '';
+      const newArguments = newToolCall.function?.arguments || '';
+      
+      // OpenAI streams complete accumulated arguments in each chunk, not incremental pieces
+      // So we should replace, not concatenate
+      const combinedArguments = newArguments;
       
       updated[existingIndex] = {
         ...existing,
         type: newToolCall.type || existing.type,
         function: {
           name: newToolCall.function?.name || existing.function?.name || '',
-          arguments: existing.function?.arguments + (newToolCall.function?.arguments || ''),
+          arguments: combinedArguments,
         },
         isStreaming: newToolCall.isStreaming !== undefined ? newToolCall.isStreaming : existing.isStreaming,
       };
     } else {
       // Add new tool call
+      console.log('🔧 [accumulateToolCalls] Adding new tool call:', {
+        id: newToolCall.id,
+        functionName: newToolCall.function?.name,
+        argumentsLength: newToolCall.function?.arguments?.length || 0,
+        type: newToolCall.type
+      });
+      
       updated.push({
         id: newToolCall.id,
         type: newToolCall.type || 'function',

@@ -42,6 +42,7 @@ import {
   ClaudeIcon,
   CohereIcon,
   DeepSeekIcon,
+  FluxIcon,
   GeminiIcon,
   GroqIcon,
   GrokIcon,
@@ -55,6 +56,9 @@ import ChatInput from '@/components/ui/ChatInput';
 import { ALL_MODELS, MODEL_CATEGORY_COLORS, ModelInfo } from '@/constants/Models';
 import { extractToolData, extractSpecificToolData } from '@/lib/utils/toolDataExtractors';
 import ImagePreview from '@/components/content/ImagePreview';
+import ToolSkeletons from '@/components/content/ToolSkeletons';
+import SourcesAvatarsSkeleton from '@/components/content/SourcesAvatarsSkeleton';
+import ImageGenerationSkeleton from '@/components/content/ImageGenerationSkeleton';
 
 interface ChatInterfaceProps {
   onMenuPress: () => void;
@@ -210,6 +214,10 @@ export default function ChatInterface({
   const [showAssistantSelector, setShowAssistantSelector] = useState(false);
   const [activeMessageButtons, setActiveMessageButtons] = useState<string | null>(null);
   
+  // Tool call state tracking (similar to web app's thread store)
+  const [currentToolCallName, setCurrentToolCallName] = useState<string | null>(null);
+  const [currentMessageId, setCurrentMessageId] = useState<string | null>(null);
+  
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Get assistant store data
@@ -248,6 +256,32 @@ export default function ChatInterface({
       console.error('Chat error:', error);
     },
     onThreadTitleUpdated,
+    onToolCall: (toolCall: any, messageId?: string) => {
+      // Use the messageId passed from useChat or fall back to streamingMessageId
+      const actualMessageId = messageId || streamingMessageId;
+      console.log('🛠️ [ChatInterface] Tool call detected:', {
+        toolName: toolCall.function?.name || toolCall.name,
+        toolId: toolCall.id,
+        streamingMessageId,
+        actualMessageId,
+        currentState: { currentToolCallName, currentMessageId }
+      });
+      setCurrentToolCallName(toolCall.function?.name || toolCall.name);
+      setCurrentMessageId(actualMessageId);
+    },
+    onToolCallComplete: (toolResult: any) => {
+      console.log('✅ [ChatInterface] Tool call completed:', {
+        toolCallId: toolResult.tool_call_id,
+        toolName: toolResult.name,
+        hasResult: !!toolResult.result,
+        currentState: { currentToolCallName, currentMessageId }
+      });
+      // Don't clear immediately - let the skeleton show for a moment
+      setTimeout(() => {
+        setCurrentToolCallName(null);
+        setCurrentMessageId(null);
+      }, 1000);
+    },
   });
 
   // Auto-scroll to bottom when new messages arrive
@@ -451,6 +485,10 @@ export default function ChatInterface({
         return <PerplexityIcon size={size} />;
       case 'openrouter':
         return <OpenRouterIcon size={size} color="#ffffff" />;
+      case 'fal':
+        return <FluxIcon size={size} color="#ffffff" />;
+      case 'flux':
+        return <FluxIcon size={size} color="#ffffff" />;
       default:
         return <OpenAIIcon size={size} color="#ffffff" />;
     }
@@ -567,11 +605,84 @@ export default function ChatInterface({
     // Check if this message should show buttons
     const showButtons = activeMessageButtons === message.id;
 
-    // Extract tool data from the message
-    const toolData = extractToolData(message);
-    const imageToolData = extractSpecificToolData(message, 'imageGen');
-    const imageData = imageToolData?.hasImages && imageToolData.images?.length > 0 ? imageToolData.images[0] : null;
-    const canvasData = undefined; // Canvas extraction not yet implemented in iOS
+    // For action buttons, extract tool data from the PREVIOUS message (like web app)
+    // This is because the assistant response message should show sources/images from the previous tool call message
+    const currentIndex = messages.findIndex(msg => msg.id === message.id);
+    const prevMessage = currentIndex > 0 ? messages[currentIndex - 1] : null;
+    
+    // Check if previous message has tool calls (this is the pattern from web app)
+    const previousMessageHasToolCalls = prevMessage?.toolCalls && Array.isArray(prevMessage.toolCalls) && prevMessage.toolCalls.length > 0;
+    
+    let firecrawlSearchData = undefined;
+    let finalImageData = null;
+    let canvasData = undefined;
+    
+    if (previousMessageHasToolCalls && !isUser) {
+      // Extract web search sources from PREVIOUS message's tool calls
+      const webSearchToolCall = prevMessage.toolCalls?.find((call: any) => {
+        const toolName = call.function?.name || call.name;
+        return toolName === 'web_search' || toolName === 'search' || toolName === 'firecrawl_search';
+      });
+
+      const webSearchSources = webSearchToolCall?.result?.sources || [];
+
+      // Create firecrawl search data structure for ActionButtons
+      firecrawlSearchData = webSearchSources.length > 0 ? {
+        sources: webSearchSources,
+        hasResults: true,
+      } : undefined;
+
+      // Extract image generation results from PREVIOUS message's tool calls
+      const imageGenerationResult = prevMessage.toolCalls?.find((call: any) => {
+        const toolName = call.function?.name || call.name;
+        return toolName === 'image_gen' || toolName === 'image_generation' || toolName === 'generate_image' || toolName === 'image_edit';
+      })?.result;
+
+      // Use tool call image data if available
+      const toolCallImageData = imageGenerationResult ? {
+        url: imageGenerationResult.image_url || imageGenerationResult.url,
+        alt: imageGenerationResult.alt_text || 'Generated image',
+        prompt: imageGenerationResult.prompt,
+        model: imageGenerationResult.model,
+        metadata: imageGenerationResult.metadata,
+      } : null;
+
+      finalImageData = toolCallImageData;
+      canvasData = undefined; // Canvas extraction not yet implemented in iOS
+    } else {
+      // Fallback: If no previous message with tool calls, check current message (for backwards compatibility)
+      const toolData = extractToolData(message);
+      const imageToolData = extractSpecificToolData(message, 'imageGen');
+      const imageData = imageToolData?.hasImages && imageToolData.images?.length > 0 ? imageToolData.images[0] : null;
+      
+      // Extract from current message (fallback)
+      const webSearchToolCall = message.toolCalls?.find((call: any) => {
+        const toolName = call.function?.name || call.name;
+        return toolName === 'web_search' || toolName === 'search' || toolName === 'firecrawl_search';
+      });
+
+      const webSearchSources = webSearchToolCall?.result?.sources || [];
+      firecrawlSearchData = webSearchSources.length > 0 ? {
+        sources: webSearchSources,
+        hasResults: true,
+      } : undefined;
+
+      const imageGenerationResult = message.toolCalls?.find((call: any) => {
+        const toolName = call.function?.name || call.name;
+        return toolName === 'image_gen' || toolName === 'image_generation' || toolName === 'generate_image' || toolName === 'image_edit';
+      })?.result;
+
+      const toolCallImageData = imageGenerationResult ? {
+        url: imageGenerationResult.image_url || imageGenerationResult.url,
+        alt: imageGenerationResult.alt_text || 'Generated image',
+        prompt: imageGenerationResult.prompt,
+        model: imageGenerationResult.model,
+        metadata: imageGenerationResult.metadata,
+      } : null;
+
+      finalImageData = toolCallImageData || imageData;
+      canvasData = undefined;
+    }
 
     return (
       <View 
@@ -605,13 +716,18 @@ export default function ChatInterface({
                   {message.content}
                 </Markdown>
                 
-                {isStreaming && (
-                  <View style={styles.streamingIndicator}>
-                    <ActivityIndicator size="small" color="#8b5cf6" />
-                    <Text style={styles.streamingText}>Generating...</Text>
-                  </View>
-                )}
-                
+                {/* Tool Skeletons - Show during tool execution */}
+                <ToolSkeletons
+                  isUser={false}
+                  skipToolCalls={false}
+                  hasToolCalls={hasToolCalls}
+                  effectiveIsStreaming={isStreaming || (streamingMessageId === message.id && currentToolCallName !== null)}
+                  toolCalls={message.tool_calls}
+                  messageId={message.id}
+                  currentToolCallName={currentToolCallName || undefined}
+                  currentMessageId={currentMessageId || undefined}
+                />
+
                 {/* File attachments for assistant messages */}
                 {hasFileAttachments && (
                   <View style={styles.messageFileAttachments}>
@@ -620,10 +736,10 @@ export default function ChatInterface({
                 )}
                 
                 {/* Generated images for assistant messages */}
-                {imageData && (
+                {finalImageData && (
                   <View style={styles.messageImageAttachments}>
                     <ImagePreview 
-                      imageData={imageData} 
+                      imageData={finalImageData} 
                       onImageClick={handleImageClick}
                     />
                   </View>
@@ -634,7 +750,7 @@ export default function ChatInterface({
               <ActionButtons
                 isUser={false}
                 hasToolCalls={hasToolCalls}
-                hasCompletedToolCalls={hasToolCalls}
+                hasCompletedToolCalls={hasToolCalls && !isStreaming}
                 effectiveIsStreaming={isStreaming}
                 showButtons={showButtons}
                 displayContent={message.content}
@@ -642,17 +758,17 @@ export default function ChatInterface({
                 content={message.content}
                 handleModelSwitchAndRerun={async () => await handleModelRerun(message.id, message.content)}
                 handleShareClick={() => handleShareMessage(message)}
-                firecrawlSearchData={undefined}
+                firecrawlSearchData={firecrawlSearchData}
                 onSourcesClick={handleSourcesClick}
                 hasFileAttachments={hasFileAttachments}
-                dalleImageData={imageData}
+                dalleImageData={finalImageData}
                 onImageClick={handleImageClick}
                 canvasData={canvasData}
                 onCanvasClick={handleCanvasClick}
                 previousMessageHasDeepResearch={false}
-                previousMessageFirecrawlData={undefined}
-                previousMessageImageData={undefined}
-                previousMessageCanvasData={undefined}
+                previousMessageFirecrawlData={previousMessageHasToolCalls ? firecrawlSearchData : undefined}
+                previousMessageImageData={previousMessageHasToolCalls ? finalImageData : undefined}
+                previousMessageCanvasData={previousMessageHasToolCalls ? canvasData : undefined}
               />
             </View>
           </View>

@@ -111,7 +111,16 @@ export class BackendProviderService {
         model: requestData.model,
         messageCount: requestData.messages.length,
         hasTools: !!requestData.tools?.length,
+        toolsCount: requestData.tools?.length || 0,
         toolChoice: requestData.tool_choice,
+        tools: requestData.tools?.map(tool => ({
+          type: tool.type,
+          functionName: tool.function?.name,
+          hasDescription: !!tool.function?.description,
+          hasParameters: !!tool.function?.parameters
+        })) || [],
+        lastMessage: requestData.messages[requestData.messages.length - 1],
+        firstMessage: requestData.messages[0]
       });
 
       let accumulatedContent = '';
@@ -122,12 +131,23 @@ export class BackendProviderService {
         requestData,
         (chunk: string) => {
           chunkCount++;
-          accumulatedContent += chunk;
-          console.log(`🧩 [BackendProviderService] Received chunk ${chunkCount}:`, {
-            chunkLength: chunk.length,
-            preview: chunk.substring(0, 50),
-            accumulatedLength: accumulatedContent.length
-          });
+          
+          // Try to parse chunk and extract content for accumulation
+          let chunkContent = '';
+          try {
+            const parsedChunk = JSON.parse(chunk);
+            chunkContent = parsedChunk?.choices?.[0]?.delta?.content || '';
+          } catch (e) {
+            // If not JSON, treat as raw content
+            chunkContent = chunk;
+          }
+          
+          // Only accumulate actual text content
+          if (chunkContent) {
+            accumulatedContent += chunkContent;
+          }
+          
+          // Always pass the complete chunk to the callback
           onUpdate(chunk);
         },
         (finalContent: string) => {

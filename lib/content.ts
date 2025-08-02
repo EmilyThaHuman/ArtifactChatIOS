@@ -34,10 +34,19 @@ export function useFileUpload(threadId?: string, workspaceId?: string) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [isPickerActive, setIsPickerActive] = useState(false);
 
   const pickDocument = useCallback(async () => {
+    // Prevent concurrent picker operations
+    if (isPickerActive) {
+      console.log('Document picker already active, ignoring request');
+      return;
+    }
+
     try {
+      setIsPickerActive(true);
       setError(null);
+      
       const result = await DocumentPicker.getDocumentAsync({
         type: '*/*',
         multiple: true,
@@ -63,14 +72,24 @@ export function useFileUpload(threadId?: string, workspaceId?: string) {
       const errorMessage = 'Failed to pick document';
       setError(errorMessage);
       Alert.alert('Error', errorMessage);
+    } finally {
+      setIsPickerActive(false);
     }
-  }, []);
+  }, [isPickerActive]);
 
   const pickImage = useCallback(async () => {
+    // Prevent concurrent picker operations
+    if (isPickerActive) {
+      console.log('Image picker already active, ignoring request');
+      return;
+    }
+
     try {
+      setIsPickerActive(true);
       setError(null);
+      
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsMultipleSelection: true,
         quality: 0.8,
       });
@@ -87,15 +106,291 @@ export function useFileUpload(threadId?: string, workspaceId?: string) {
         }));
 
         setFiles(prev => [...prev, ...newFiles]);
-        await processFiles(newFiles);
+        
+        // Process images individually using backend API (same as web app)
+        for (const file of newFiles) {
+          try {
+            console.log('🖼️ [pickImage] Uploading image:', file.name);
+            
+            // Read file as base64 for backend API
+            const base64Content = await FileSystem.readAsStringAsync(file.uri, {
+              encoding: FileSystem.EncodingType.Base64
+            });
+            
+            // Add data URL prefix for proper base64 format
+            const base64WithPrefix = `data:${file.type};base64,${base64Content}`;
+            
+            // Upload via backend API (same as web app)
+            const response = await fetch(`${process.env.EXPO_PUBLIC_API_BASE_URL}/api/ai/files/upload`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                file: base64WithPrefix,
+                purpose: 'vision',
+                filename: file.name,
+              }),
+            });
+            
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({}));
+              throw new Error(`Upload failed: ${errorData.error || response.status}`);
+            }
+            
+            const uploadResult = await response.json();
+            const publicUrl = uploadResult.file?.url || uploadResult.publicUrl;
+            
+            // Update file with completed status and public URL
+            setFiles(prev => 
+              prev.map(f => 
+                f.id === file.id 
+                  ? { 
+                      ...f, 
+                      status: 'completed',
+                      publicUrl,
+                      metadata: { ...uploadResult.file }
+                    }
+                  : f
+              )
+            );
+            
+            console.log('✅ [pickImage] Image uploaded successfully:', file.name);
+            
+          } catch (uploadError) {
+            console.error('❌ [pickImage] Upload failed:', uploadError);
+            // Mark file as error
+            setFiles(prev => 
+              prev.map(f => 
+                f.id === file.id 
+                  ? { ...f, status: 'error' }
+                  : f
+              )
+            );
+          }
+        }
       }
     } catch (error) {
       console.error('Error picking image:', error);
       const errorMessage = 'Failed to pick image';
       setError(errorMessage);
       Alert.alert('Error', errorMessage);
+    } finally {
+      setIsPickerActive(false);
     }
-  }, []);
+  }, [isPickerActive]);
+
+  const captureImage = useCallback(async () => {
+    // Prevent concurrent picker operations
+    if (isPickerActive) {
+      console.log('Camera already active, ignoring request');
+      return;
+    }
+
+    try {
+      setIsPickerActive(true);
+      setError(null);
+      
+      // Request camera permissions
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Camera access is required to take photos.');
+        return;
+      }
+      
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets) {
+        const newFiles: VectorStoreFile[] = result.assets.map((asset, index) => ({
+          id: `cam-${Date.now()}-${index}`,
+          name: asset.fileName || `camera-${Date.now()}-${index}.jpg`,
+          size: asset.fileSize || 0,
+          type: 'image/jpeg',
+          uri: asset.uri,
+          status: 'uploading',
+          isImage: true
+        }));
+
+        setFiles(prev => [...prev, ...newFiles]);
+        
+        // Process images individually using backend API (same as web app)
+        for (const file of newFiles) {
+          try {
+            console.log('📷 [captureImage] Uploading captured image:', file.name);
+            
+            // Read file as base64 for backend API
+            const base64Content = await FileSystem.readAsStringAsync(file.uri, {
+              encoding: FileSystem.EncodingType.Base64
+            });
+            
+            // Add data URL prefix for proper base64 format
+            const base64WithPrefix = `data:${file.type};base64,${base64Content}`;
+            
+            // Upload via backend API (same as web app)
+            const response = await fetch(`${process.env.EXPO_PUBLIC_API_BASE_URL}/api/ai/files/upload`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                file: base64WithPrefix,
+                purpose: 'vision',
+                filename: file.name,
+              }),
+            });
+            
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({}));
+              throw new Error(`Upload failed: ${errorData.error || response.status}`);
+            }
+            
+            const uploadResult = await response.json();
+            const publicUrl = uploadResult.file?.url || uploadResult.publicUrl;
+            
+            // Update file with completed status and public URL
+            setFiles(prev => 
+              prev.map(f => 
+                f.id === file.id 
+                  ? { 
+                      ...f, 
+                      status: 'completed',
+                      publicUrl,
+                      metadata: { ...uploadResult.file }
+                    }
+                  : f
+              )
+            );
+            
+            console.log('✅ [captureImage] Image uploaded successfully:', file.name);
+            
+          } catch (uploadError) {
+            console.error('❌ [captureImage] Upload failed:', uploadError);
+            // Mark file as error
+            setFiles(prev => 
+              prev.map(f => 
+                f.id === file.id 
+                  ? { ...f, status: 'error' }
+                  : f
+              )
+            );
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error capturing image:', error);
+      const errorMessage = 'Failed to capture image';
+      setError(errorMessage);
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setIsPickerActive(false);
+    }
+  }, [isPickerActive]);
+
+  const addImageFromUri = useCallback(async (uri: string, filename: string, width?: number, height?: number) => {
+    try {
+      setError(null);
+      
+      const newFile: VectorStoreFile = {
+        id: `selected-${Date.now()}`,
+        name: filename || `image-${Date.now()}.jpg`,
+        size: 0, // We don't have size info for selected photos
+        type: 'image/jpeg',
+        uri: uri,
+        status: 'uploading',
+        isImage: true
+      };
+
+      setFiles(prev => [...prev, newFile]);
+      
+      // Only process files if we have a context, otherwise just add to state for display
+      if (threadId || workspaceId) {
+        try {
+          // Upload image using backend API (same as web app)
+          console.log('🖼️ [addImageFromUri] Uploading selected image:', filename);
+          
+          // Read file as base64 for backend API
+          const base64Content = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64
+          });
+          
+          // Add data URL prefix for proper base64 format
+          const base64WithPrefix = `data:image/jpeg;base64,${base64Content}`;
+          
+          // Upload via backend API (same as web app)
+          const response = await fetch(`${process.env.EXPO_PUBLIC_API_BASE_URL}/api/ai/files/upload`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              file: base64WithPrefix,
+              purpose: 'vision',
+              filename: filename,
+            }),
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(`Upload failed: ${errorData.error || response.status}`);
+          }
+          
+          const result = await response.json();
+          const publicUrl = result.file?.url || result.publicUrl;
+          
+          if (!publicUrl) {
+            throw new Error('No public URL returned from upload');
+          }
+          
+          // Update file with completed status and public URL
+          setFiles(prev => 
+            prev.map(f => 
+              f.id === newFile.id 
+                ? { 
+                    ...f, 
+                    status: 'completed',
+                    publicUrl,
+                    metadata: { ...result.file }
+                  }
+                : f
+            )
+          );
+          
+          console.log('✅ [addImageFromUri] Image uploaded successfully:', filename);
+          
+        } catch (uploadError) {
+          console.error('❌ [addImageFromUri] Upload failed:', uploadError);
+          // Mark file as error
+          setFiles(prev => 
+            prev.map(f => 
+              f.id === newFile.id 
+                ? { ...f, status: 'error' }
+                : f
+            )
+          );
+          throw uploadError;
+        }
+      } else {
+        console.log('No thread/workspace context - image added for display only');
+        // Update the file status to completed since we're not uploading
+        setFiles(prev => 
+          prev.map(f => 
+            f.id === newFile.id 
+              ? { ...f, status: 'completed' }
+              : f
+          )
+        );
+      }
+    } catch (error) {
+      console.error('Error adding image from URI:', error);
+      const errorMessage = 'Failed to add selected image';
+      setError(errorMessage);
+      Alert.alert('Error', errorMessage);
+    }
+  }, [threadId, workspaceId]);
 
   const processFiles = useCallback(async (filesToProcess: VectorStoreFile[]) => {
     if (!threadId && !workspaceId) {
@@ -209,8 +504,11 @@ export function useFileUpload(threadId?: string, workspaceId?: string) {
     isUploading,
     uploadProgress,
     error,
+    isPickerActive,
     pickDocument,
     pickImage,
+    captureImage,
+    addImageFromUri,
     removeFile,
     clearFiles,
     getVectorStoreForContext
@@ -319,7 +617,7 @@ async function uploadFileToVectorStore(
 }
 
 /**
- * Upload image for vision to Supabase storage
+ * Upload image for vision to backend API (similar to web app)
  */
 async function uploadImageForVision(
   file: VectorStoreFile,
@@ -328,25 +626,38 @@ async function uploadImageForVision(
   try {
     console.log('🖼️ [uploadImageForVision] Uploading image:', file.name);
 
+    // Read file as base64 for backend API
     const base64Content = await FileSystem.readAsStringAsync(file.uri, {
       encoding: FileSystem.EncodingType.Base64
     });
     
-    const fileName = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
-    const filePath = `chat/${contextId || 'temp'}/${fileName}`;
+    // Add data URL prefix for proper base64 format
+    const base64WithPrefix = `data:${file.type};base64,${base64Content}`;
     
-    const { data, error } = await supabase.storage
-      .from('chat-files')
-      .upload(filePath, base64Content, {
-        contentType: file.type,
-        upsert: false
-      });
+    // Upload via backend API (same as web app)
+    const response = await fetch(`${process.env.EXPO_PUBLIC_API_BASE_URL}/api/ai/files/upload`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        file: base64WithPrefix,
+        purpose: 'vision',
+        filename: file.name,
+      }),
+    });
     
-    if (error) throw error;
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`Upload failed: ${errorData.error || response.status}`);
+    }
     
-    const { data: { publicUrl } } = supabase.storage
-      .from('chat-files')
-      .getPublicUrl(filePath);
+    const result = await response.json();
+    const publicUrl = result.file?.url || result.publicUrl;
+    
+    if (!publicUrl) {
+      throw new Error('No public URL returned from upload');
+    }
     
     console.log('✅ [uploadImageForVision] Image uploaded:', {
       fileName: file.name,

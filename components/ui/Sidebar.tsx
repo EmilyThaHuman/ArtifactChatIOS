@@ -319,47 +319,49 @@ export function Sidebar({
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {/* Header */}
+            {/* Header with Logo, Search, and New Chat */}
             <View style={styles.header}>
               <TouchableOpacity onPress={toggleCollapse} style={styles.logoContainer}>
                 <ArtifactLogo size={isCollapsed ? 24 : 32} />
-                {!isCollapsed && (
-                  <Text style={styles.logoText}>Artifact</Text>
-                )}
               </TouchableOpacity>
               
               {!isCollapsed && (
-                <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                  <X size={20} color={Colors.textSecondary} />
+                <View style={styles.headerActions}>
+                  {/* Search */}
+                  <View style={[styles.searchContainer, isSearchMode && styles.searchActive]}>
+                    <Search size={16} color={Colors.textSecondary} style={styles.searchIcon} />
+                    <TextInput
+                      ref={searchInputRef}
+                      style={styles.searchInput}
+                      placeholder="Search..."
+                      placeholderTextColor={Colors.textSecondary}
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
+                      onFocus={handleSearchFocus}
+                      onBlur={handleSearchBlur}
+                      onSubmitEditing={handleSearchSubmit}
+                      returnKeyType="search"
+                    />
+                    {isSearchMode && (
+                      <TouchableOpacity onPress={handleSearchCancel} style={styles.searchCancel}>
+                        <X size={14} color={Colors.textSecondary} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  
+                  {/* New Chat Button */}
+                  <TouchableOpacity onPress={handleInternalNewChat} style={styles.newChatButton}>
+                    <PenSquare size={18} color="#ffffff" />
+                  </TouchableOpacity>
+                </View>
+              )}
+              
+              {isCollapsed && (
+                <TouchableOpacity onPress={handleInternalNewChat} style={styles.newChatButtonCollapsed}>
+                  <PenSquare size={18} color="#ffffff" />
                 </TouchableOpacity>
               )}
             </View>
-
-            {/* Search */}
-            {!isCollapsed && (
-              <View style={styles.searchSection}>
-                <View style={[styles.searchContainer, isSearchMode && styles.searchActive]}>
-                  <Search size={16} color={Colors.textSecondary} style={styles.searchIcon} />
-                  <TextInput
-                    ref={searchInputRef}
-                    style={styles.searchInput}
-                    placeholder="Search conversations..."
-                    placeholderTextColor={Colors.textSecondary}
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                    onFocus={handleSearchFocus}
-                    onBlur={handleSearchBlur}
-                    onSubmitEditing={handleSearchSubmit}
-                    returnKeyType="search"
-                  />
-                  {isSearchMode && (
-                    <TouchableOpacity onPress={handleSearchCancel} style={styles.searchCancel}>
-                      <X size={14} color={Colors.textSecondary} />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-            )}
 
             {/* Navigation */}
             {!isSearchMode && (
@@ -367,19 +369,9 @@ export function Sidebar({
                 <View style={styles.navigation}>
                   <TouchableOpacity
                     style={styles.navButton}
-                    onPress={handleInternalNewChat}
-                  >
-                    <PenSquare size={18} color="#ffffff" />
-                    {!isCollapsed && (
-                      <Text style={styles.navButtonText}>New Chat</Text>
-                    )}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.navButton}
                     onPress={onNavigateToLibrary}
                   >
-                    <Images size={18} color="#ffffff" />
+                    <Images size={20} color="#ffffff" />
                     {!isCollapsed && (
                       <Text style={styles.navButtonText}>Library</Text>
                     )}
@@ -389,7 +381,7 @@ export function Sidebar({
                     style={styles.navButton}
                     onPress={onNavigateToCanvases}
                   >
-                    <FileText size={18} color="#ffffff" />
+                    <FileText size={20} color="#ffffff" />
                     {!isCollapsed && (
                       <Text style={styles.navButtonText}>Canvases</Text>
                     )}
@@ -505,32 +497,45 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#374151',
+    gap: 4,
   },
   logoContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  logoText: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginLeft: 8,
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'space-between',
+    paddingLeft: 2,
   },
-  closeButton: {
-    padding: 4,
+  newChatButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  searchSection: {
-    paddingHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 8,
+  newChatButtonCollapsed: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#374151',
-    borderRadius: 24,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    backgroundColor: '#3a3a3c',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flex: 1,
+    marginRight: 12,
+    height: 36,
   },
   searchActive: {
     borderColor: '#9333ea',
@@ -548,21 +553,22 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   navigation: {
-    paddingHorizontal: 16,
-    marginBottom: 16,
+    paddingHorizontal: 8,
+    marginTop: 8,
+    marginBottom: 8,
   },
   navButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'transparent',
     borderRadius: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 4,
     paddingVertical: 10,
     marginVertical: 2,
   },
   navButtonText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 15,
     marginLeft: 8,
     flex: 1,
   },

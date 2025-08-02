@@ -27,13 +27,64 @@ import {
   FileText,
   Download,
   Upload,
+  Edit3,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import { Colors } from '@/constants/Colors';
 import { useFileUpload } from '@/lib/content';
+import PhotoSelector from './PhotoSelector';
+import ImageModelSelector from './ImageModelSelector';
+import ImageStyleSelector, { ImageStyle, IMAGE_STYLES } from './ImageStyleSelector';
+import { AVAILABLE_IMAGE_MODELS, DEFAULT_IMAGE_MODEL, ImageModelInfo } from '@/constants/ImageModels';
+import { editImage, supportsImageEditing } from '@/lib/services/imageEditingService';
+import {
+  ClaudeIcon,
+  CohereIcon,
+  DeepSeekIcon,
+  FluxIcon,
+  GeminiIcon,
+  GroqIcon,
+  GrokIcon,
+  MistralIcon,
+  PerplexityIcon,
+  OpenRouterIcon,
+} from './icons';
+import { OpenAIIcon } from './OpenAIIcon';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// Helper function to get image model provider icons
+const getImageModelIcon = (provider: string, size: number = 12) => {
+  switch (provider.toLowerCase()) {
+    case 'openai':
+      return <OpenAIIcon size={size} color="#ffffff" />;
+    case 'fal':
+      return <FluxIcon size={size} color="#ffffff" />;
+    case 'google':
+      return <GeminiIcon size={size} />;
+    case 'xai':
+      return <GrokIcon size={size} color="#ffffff" />;
+    case 'anthropic':
+      return <ClaudeIcon size={size} />;
+    case 'deepseek':
+      return <DeepSeekIcon size={size} />;
+    case 'groq':
+      return <GroqIcon size={size} color="#ffffff" />;
+    case 'mistral':
+      return <MistralIcon size={size} />;
+    case 'cohere':
+      return <CohereIcon size={size} />;
+    case 'perplexity':
+      return <PerplexityIcon size={size} />;
+    case 'openrouter':
+      return <OpenRouterIcon size={size} color="#ffffff" />;
+    case 'flux':
+      return <FluxIcon size={size} color="#ffffff" />;
+    default:
+      return <OpenAIIcon size={size} color="#ffffff" />;
+  }
+};
 
 // File utility functions
 const getFileBackgroundColor = (filename: string) => {
@@ -173,73 +224,7 @@ interface Tool {
   onPress: () => void;
 }
 
-interface ImageStyle {
-  name: string;
-  value: string;
-  imageUrl: any; // Can be require() or URI string
-  prompt: string;
-}
 
-// Image style options using kitty images
-const IMAGE_STYLES: ImageStyle[] = [
-  // Row 1 - Top row
-  {
-    name: "Cyberpunk",
-    value: "cyberpunk",
-    imageUrl: require("@/assets/images/kitties/cyberpunk.webp"),
-    prompt: "Create an image in a cyberpunk aesthetic: vivid neon accents, futuristic textures, glowing details, and high-contrast lighting.",
-  },
-  {
-    name: "Anime",
-    value: "anime",
-    imageUrl: require("@/assets/images/kitties/anime.webp"),
-    prompt: "Create an image in a detailed anime aesthetic: expressive eyes, smooth cel-shaded coloring, and clean linework. Emphasize emotion and character presence, with a sense of motion or atmosphere typical of anime scenes.",
-  },
-  {
-    name: "Dramatic Headshot",
-    value: "headshot",
-    imageUrl: require("@/assets/images/kitties/headshot.webp"),
-    prompt: "Create an ultra-realistic high-contrast black-and-white headshot, close up, black shadow background, 35mm lens, 4K quality, aspect ratio 4:3.",
-  },
-  // Row 2 - Middle row
-  {
-    name: "Coloring Book",
-    value: "coloring-book",
-    imageUrl: require("@/assets/images/kitties/coloring-book.webp"),
-    prompt: "Create an image in a children's coloring book style: bold, even black outlines on white, no shading or tone. Simplify textures into playful, easily recognizable shapes.",
-  },
-  {
-    name: "Photo Shoot",
-    value: "photoshoot",
-    imageUrl: require("@/assets/images/kitties/photoshoot.webp"),
-    prompt: "Create an ultra-realistic professional photo shoot with soft lighting.",
-  },
-  {
-    name: "Retro Cartoon",
-    value: "retro",
-    imageUrl: require("@/assets/images/kitties/retro.webp"),
-    prompt: "Create a retro 1950s cartoon style image, minimal vector art, Art Deco inspired, clean flat colors, geometric shapes, mid-century modern design, elegant silhouettes, UPA style animation, smooth lines, limited color palette (black, red, beige, brown, white), grainy paper texture background, vintage jazz club atmosphere, subtle lighting, slightly exaggerated character proportions, classy and stylish mood.",
-  },
-  // Row 3 - Bottom row
-  {
-    name: "80s Glam",
-    value: "80s",
-    imageUrl: require("@/assets/images/kitties/80s.webp"),
-    prompt: "Create a selfie styled like a cheesy 1980s mall glamour shot, foggy soft lighting, teal and magenta lasers in the background, feathered hair, shoulder pads, portrait studio vibes, ironic 'glam 4 life' caption.",
-  },
-  {
-    name: "Art Nouveau",
-    value: "art-nouveau",
-    imageUrl: require("@/assets/images/kitties/art-nouveu.webp"),
-    prompt: "Create an image in an Art Nouveau style: flowing lines, organic shapes, floral motifs, and soft, decorative elegance.",
-  },
-  {
-    name: "Synthwave",
-    value: "synthwave",
-    imageUrl: require("@/assets/images/kitties/synthwave.webp"),
-    prompt: "Create an image in a synthwave aesthetic: retro-futuristic 1980s vibe with neon grids, glowing sunset, vibrant magenta-and-cyan gradients, chrome highlights, and a nostalgic outrun atmosphere.",
-  },
-];
 
 export default function ChatInput({
   onSendMessage,
@@ -256,19 +241,23 @@ export default function ChatInput({
 }: ChatInputProps) {
   const [inputText, setInputText] = useState('');
   const [showBottomSheet, setShowBottomSheet] = useState(false);
-  const [recentPhotos, setRecentPhotos] = useState<RecentPhoto[]>([]);
-  const [loadingPhotos, setLoadingPhotos] = useState(false);
   const [selectedTool, setSelectedTool] = useState<{ toolId: string; toolName: string } | null>(null);
-  const [showStylesModal, setShowStylesModal] = useState(false);
   const [selectedImageStyle, setSelectedImageStyle] = useState<ImageStyle | null>(null);
+  const [selectedImageModel, setSelectedImageModel] = useState<ImageModelInfo>(DEFAULT_IMAGE_MODEL);
+  const [isEditingImage, setIsEditingImage] = useState(false);
+  const [showImageModelModal, setShowImageModelModal] = useState(false);
+  const [showStyleModal, setShowStyleModal] = useState(false);
   const [slideAnimation] = useState(new Animated.Value(0));
 
   // File upload hook
   const {
     files,
     isUploading,
+    isPickerActive,
     pickDocument,
     pickImage,
+    captureImage,
+    addImageFromUri,
     removeFile,
     clearFiles
   } = useFileUpload(threadId, workspaceId);
@@ -276,117 +265,56 @@ export default function ChatInput({
   const effectiveDisabled = disabled || !isConnected;
   const effectivePlaceholder = !isConnected ? "Connecting..." : placeholder;
 
-  // Don't load photos on mount - wait until user opens bottom sheet
-  // This prevents permission prompts on app startup
 
-  const loadRecentPhotos = async () => {
-    if (loadingPhotos) return; // Prevent multiple simultaneous loads
-    
-    try {
-      setLoadingPhotos(true);
-      console.log('📸 Starting to load recent photos...');
-      
-      // Check permissions first
-      const { status } = await MediaLibrary.getPermissionsAsync();
-      console.log('📸 Current permission status:', status);
-      
-      if (status !== 'granted') {
-        console.log('📸 Requesting media library permissions...');
-        const { status: newStatus } = await MediaLibrary.requestPermissionsAsync();
-        console.log('📸 New permission status:', newStatus);
-        if (newStatus !== 'granted') {
-          console.log('📸 Photo library permission denied');
-          setRecentPhotos([]); // Set empty array to show "No recent photos"
-          return;
-        }
-      }
-
-      console.log('📸 Fetching assets from media library...');
-      const assets = await MediaLibrary.getAssetsAsync({
-        mediaType: MediaLibrary.MediaType.photo,
-        first: 8,
-        sortBy: [MediaLibrary.SortBy.creationTime],
-      });
-
-      console.log('📸 Raw assets response:', {
-        totalCount: assets.totalCount,
-        assetsLength: assets.assets.length,
-        hasNextPage: assets.hasNextPage,
-        endCursor: assets.endCursor
-      });
-
-      // Process photos with enhanced URI handling for iOS ph:// format
-      const photos: RecentPhoto[] = [];
-      
-      for (const asset of assets.assets) {
-        try {
-          // For iOS ph:// URIs, we need to get asset info to get a usable URI
-          if (asset.uri.startsWith('ph://')) {
-            console.log('📸 Processing ph:// URI for asset:', asset.id);
-            const assetInfo = await MediaLibrary.getAssetInfoAsync(asset);
-            console.log('📸 Asset info:', assetInfo);
-            
-            // Use localUri if available, otherwise fall back to original uri
-            const usableUri = assetInfo.localUri || asset.uri;
-            
-            photos.push({
-              id: asset.id,
-              uri: usableUri,
-              filename: asset.filename,
-              width: asset.width,
-              height: asset.height,
-            });
-          } else {
-            // Standard URI format
-            photos.push({
-              id: asset.id,
-              uri: asset.uri,
-              filename: asset.filename,
-              width: asset.width,
-              height: asset.height,
-            });
-          }
-        } catch (assetError) {
-          console.warn('📸 Failed to process asset:', asset.id, assetError);
-          // Skip this asset and continue with others
-        }
-      }
-
-      console.log('📸 Successfully processed photos:', photos);
-      setRecentPhotos(photos);
-      console.log(`📸 Successfully loaded ${photos.length} recent photos`);
-    } catch (error) {
-      console.error('📸 Error loading recent photos:', error);
-      setRecentPhotos([]); // Set empty array to show "No recent photos"
-      
-      // Show user-friendly error for specific cases
-      if (error instanceof Error && error.message?.includes('permission')) {
-        Alert.alert(
-          'Photo Access',
-          'Unable to access your photo library. Please check permissions in Settings.',
-          [{ text: 'OK' }]
-        );
-      }
-    } finally {
-      setLoadingPhotos(false);
-    }
-  };
 
   const handleSendMessage = async () => {
     if (!inputText.trim() || disabled || isLoading) return;
     
-    const messageContent = inputText.trim();
+    let messageContent = inputText.trim();
     const attachedFiles = files.filter(f => f.status === 'completed');
     
+    // If image generation is selected, enhance the message with style and model info
+    if (selectedTool?.toolId === 'create-image') {
+      // Add style prompt if a style is selected
+      if (selectedImageStyle) {
+        messageContent = `${selectedImageStyle.prompt}\n\n${messageContent}`;
+      }
+      
+      // Create enhanced tool object with model and style information
+      const enhancedTool = {
+        ...selectedTool,
+        model: selectedImageModel.model,
+        modelName: selectedImageModel.name,
+        style: selectedImageStyle ? {
+          name: selectedImageStyle.name,
+          value: selectedImageStyle.value,
+          prompt: selectedImageStyle.prompt
+        } : null
+      };
+      
+      setInputText('');
+      clearFiles();
+      
+      // Send the message with enhanced tool information
+      onSendMessage(messageContent, attachedFiles, enhancedTool);
+    } else {
     setInputText('');
     clearFiles();
     
-    // Send the message with tool choice - the tool logic is now handled in useChat
+      // Send the message with regular tool choice
     onSendMessage(messageContent, attachedFiles, selectedTool);
+    }
     
     // Clear tool selection after sending
     setSelectedTool(null);
     setSelectedImageStyle(null);
+  };
+
+  const handleSubmitEditing = () => {
+    // Only send message if there's content and we're not loading
+    if (inputText.trim() && !isLoading && !effectiveDisabled) {
+      handleSendMessage();
+    }
   };
 
   const handlePlusPress = async () => {
@@ -397,14 +325,8 @@ export default function ChatInput({
         duration: 300,
         useNativeDriver: true,
       }).start();
-      
-      // Try to load photos when the sheet opens, but don't block the UI if it fails
-      if (recentPhotos.length === 0) {
-        await loadRecentPhotos();
-      }
     } catch (error) {
       console.error('Error opening bottom sheet:', error);
-      // Still show the bottom sheet even if photo loading fails
     }
   };
 
@@ -422,38 +344,17 @@ export default function ChatInput({
     try {
       hideBottomSheet();
       
-      // Use the existing image picker with the selected photo URI
-      // This will trigger the same flow as pickImage but with a specific photo
-      const result = {
-        canceled: false,
-        assets: [
-          {
-            uri: photo.uri,
-            fileName: photo.filename,
-            fileSize: 0,
-            width: photo.width,
-            height: photo.height,
-          }
-        ]
-      };
-
-      // Process the photo like pickImage does
-      if (!result.canceled && result.assets) {
-        const newFiles = result.assets.map((asset, index) => ({
-          id: `photo-${Date.now()}-${index}`,
-          name: asset.fileName || `image-${Date.now()}.jpg`,
-          size: asset.fileSize || 0,
-          type: 'image/jpeg',
-          uri: asset.uri,
-          status: 'uploading' as const,
-          isImage: true
-        }));
-
-        // This would need to be handled by the parent component
-        console.log('Selected photo for upload:', newFiles[0]);
-      }
+      // Use the new addImageFromUri function to directly add the selected photo
+      await addImageFromUri(photo.uri, photo.filename, photo.width, photo.height);
+      
+      console.log('Successfully selected and uploaded photo:', photo.filename);
     } catch (error) {
       console.error('Error selecting photo:', error);
+      Alert.alert(
+        'Upload Error',
+        'Failed to upload the selected photo. Please try again.',
+        [{ text: 'OK' }]
+      );
     }
   };
 
@@ -482,12 +383,74 @@ export default function ChatInput({
     hideBottomSheet();
   };
 
+  const handleImageEdit = async () => {
+    try {
+      if (files.length === 0) {
+        Alert.alert('No Images', 'Please upload an image first to edit it.');
+        return;
+      }
+
+      const imageFiles = files.filter(file => file.isImage);
+      if (imageFiles.length === 0) {
+        Alert.alert('No Images', 'Please upload an image file to edit.');
+        return;
+      }
+
+      if (!inputText.trim()) {
+        Alert.alert('No Instructions', 'Please provide instructions for how you want to edit the image.');
+        return;
+      }
+
+      if (!supportsImageEditing(selectedImageModel.id)) {
+        Alert.alert('Model Not Supported', `The ${selectedImageModel.name} model does not support image editing. Please select a different model.`);
+        return;
+      }
+
+      hideBottomSheet();
+      setIsEditingImage(true);
+
+      const imageUrls = imageFiles.map(file => file.uri);
+      const editResult = await editImage({
+        prompt: inputText,
+        imageUrls,
+        model: selectedImageModel.model,
+        size: '1024x1024',
+        n: 1,
+      });
+
+      if (editResult.success) {
+        // Clear input and show success
+        setInputText('');
+        Alert.alert('Success', 'Image has been edited successfully!');
+        
+        // Optionally add the edited images to the message
+        const editedImageUrls = editResult.result.data.images.map(img => img.url);
+        if (onSendMessage && editedImageUrls.length > 0) {
+          onSendMessage(`Here are your edited images:\n\n${editedImageUrls.map(url => `![Edited Image](${url})`).join('\n\n')}`);
+        }
+      } else {
+        Alert.alert('Error', editResult.error || 'Failed to edit image');
+      }
+    } catch (error) {
+      console.error('Error editing image:', error);
+      Alert.alert('Error', 'Failed to edit image. Please try again.');
+    } finally {
+      setIsEditingImage(false);
+    }
+  };
+
   const tools: Tool[] = [
     {
       id: 'create-image',
       title: 'Create image',
       icon: Palette,
       onPress: () => toggleTool('create-image', 'Create image')
+    },
+    {
+      id: 'edit-image',
+      title: 'Edit image',
+      icon: Edit3,
+      onPress: handleImageEdit
     },
     {
       id: 'web-search',
@@ -506,31 +469,31 @@ export default function ChatInput({
     },
   ];
 
-  const renderPhotoItem = (photo: RecentPhoto, index: number) => (
-    <TouchableOpacity
-      key={photo.id}
-      style={styles.photoItem}
-      onPress={() => handlePhotoSelect(photo)}
-    >
-      <Image source={{ uri: photo.uri }} style={styles.photoImage} resizeMode="cover" />
-    </TouchableOpacity>
-  );
+
 
   const renderToolItem = (tool: Tool) => {
     const isSelected = selectedTool?.toolId === tool.id;
     const isToggleTool = tool.id === 'create-image' || tool.id === 'web-search';
+    const isEditImageTool = tool.id === 'edit-image';
+    const isLoading = isEditImageTool && isEditingImage;
     
     return (
       <TouchableOpacity
         key={tool.id}
         style={[
           styles.toolItem,
-          isSelected && styles.toolItemSelected
+          isSelected && styles.toolItemSelected,
+          isLoading && styles.toolItemLoading
         ]}
-        onPress={tool.onPress}
+        onPress={isLoading ? undefined : tool.onPress}
+        disabled={isLoading}
       >
         <View style={[styles.toolIcon, isSelected && styles.toolIconSelected]}>
+          {isLoading ? (
+            <ActivityIndicator size={24} color="#9333ea" />
+          ) : (
           <tool.icon size={24} color={isSelected ? "#9333ea" : "#ffffff"} />
+          )}
           {isSelected && isToggleTool && (
             <View style={styles.toolBadge}>
               <View style={styles.toolBadgeDot} />
@@ -538,7 +501,7 @@ export default function ChatInput({
           )}
         </View>
         <Text style={[styles.toolText, isSelected && styles.toolTextSelected]}>
-          {tool.title}
+          {isLoading ? 'Editing...' : tool.title}
         </Text>
       </TouchableOpacity>
     );
@@ -553,6 +516,110 @@ export default function ChatInput({
     inputRange: [0, 1],
     outputRange: [0, 0.5],
   });
+
+  const renderImageModelSelector = () => (
+    <Modal
+      visible={showImageModelModal}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setShowImageModelModal(false)}
+    >
+      <TouchableOpacity 
+        style={styles.modalOverlay}
+        activeOpacity={1}
+        onPress={() => setShowImageModelModal(false)}
+      >
+        <View style={styles.modelSelectorContainer}>
+          <Text style={styles.modelSelectorTitle}>Choose Image Model</Text>
+          <ScrollView 
+            style={styles.modelOptionsScroll}
+            showsVerticalScrollIndicator={true}
+            contentContainerStyle={styles.modelOptionsContent}
+          >
+            {AVAILABLE_IMAGE_MODELS.map((model) => (
+              <TouchableOpacity
+                key={model.id}
+                style={[
+                  styles.modelOption,
+                  selectedImageModel.id === model.id && styles.selectedModelOption
+                ]}
+                onPress={() => {
+                  setSelectedImageModel(model);
+                  setShowImageModelModal(false);
+                }}
+                disabled={isLoading}
+              >
+                <View style={styles.modelIcon}>
+                  {getImageModelIcon(model.provider, 20)}
+                </View>
+                <View style={styles.modelInfo}>
+                  <Text style={styles.modelName}>{model.name}</Text>
+                  <Text style={styles.modelProvider}>{model.provider}</Text>
+                </View>
+                {selectedImageModel.id === model.id && (
+                  <View style={styles.selectedIndicator} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
+
+  const renderStyleSelector = () => (
+    <Modal
+      visible={showStyleModal}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setShowStyleModal(false)}
+    >
+      <TouchableOpacity 
+        style={styles.modalOverlay}
+        activeOpacity={1}
+        onPress={() => setShowStyleModal(false)}
+      >
+        <View style={styles.modelSelectorContainer}>
+          <Text style={styles.modelSelectorTitle}>Choose Style</Text>
+          <ScrollView 
+            style={styles.modelOptionsScroll}
+            showsVerticalScrollIndicator={true}
+            contentContainerStyle={styles.modelOptionsContent}
+          >
+            {IMAGE_STYLES.map((style) => (
+              <TouchableOpacity
+                key={style.value}
+                style={[
+                  styles.modelOption,
+                  selectedImageStyle?.value === style.value && styles.selectedModelOption
+                ]}
+                onPress={() => {
+                  setSelectedImageStyle(style);
+                  setShowStyleModal(false);
+                }}
+                disabled={isLoading}
+              >
+                <View style={styles.modelIcon}>
+                  <Image 
+                    source={style.imageUrl} 
+                    style={styles.stylePreviewImage}
+                    resizeMode="cover"
+                  />
+                </View>
+                <View style={styles.modelInfo}>
+                  <Text style={styles.modelName}>{style.name}</Text>
+                  <Text style={styles.modelProvider}>{style.category || 'Style'}</Text>
+                </View>
+                {selectedImageStyle?.value === style.value && (
+                  <View style={styles.selectedIndicator} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
 
   return (
     <>
@@ -656,18 +723,45 @@ export default function ChatInput({
                 </TouchableOpacity>
               </View>
 
-              {/* Styles Chip for Image Generation */}
+              {/* Image Generation Controls */}
               {selectedTool.toolId === 'create-image' && (
+                <>
+                  {/* Image Model Badge */}
                 <TouchableOpacity 
-                  style={styles.stylesChip}
-                  onPress={() => setShowStylesModal(true)}
-                >
-                  <Palette size={12} color="#a855f7" />
-                  <Text style={styles.stylesChipText}>
-                    {selectedImageStyle ? selectedImageStyle.name : 'Styles'}
+                    style={styles.imageModelBadge}
+                    onPress={() => setShowImageModelModal(true)}
+                    disabled={isLoading}
+                  >
+                    <View style={styles.imageModelIcon}>
+                      {getImageModelIcon(selectedImageModel.provider, 12)}
+                    </View>
+                    <Text style={styles.imageModelBadgeText}>
+                      {selectedImageModel.name}
                   </Text>
-                  <ChevronDown size={12} color="#a855f7" />
                 </TouchableOpacity>
+
+                  {/* Style Badge */}
+                  <TouchableOpacity 
+                    style={styles.styleBadge}
+                    onPress={() => setShowStyleModal(true)}
+                    disabled={isLoading}
+                  >
+                    <View style={styles.styleIcon}>
+                      {selectedImageStyle ? (
+                        <Image 
+                          source={selectedImageStyle.imageUrl} 
+                          style={styles.styleIconImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <Palette size={12} color="#8B5CF6" />
+                      )}
+                    </View>
+                    <Text style={styles.styleBadgeText}>
+                      {selectedImageStyle ? selectedImageStyle.name : 'Style'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
               )}
             </ScrollView>
           </View>
@@ -681,11 +775,12 @@ export default function ChatInput({
             placeholderTextColor="#6b7280"
             value={inputText}
             onChangeText={setInputText}
-            multiline={true}
+            multiline={false}
             maxLength={maxLength}
             editable={!effectiveDisabled}
-            onSubmitEditing={handleSendMessage}
             returnKeyType="send"
+            onSubmitEditing={handleSubmitEditing}
+            enablesReturnKeyAutomatically={true}
           />
           
           <View style={styles.buttonRow}>
@@ -747,76 +842,15 @@ export default function ChatInput({
               <View style={styles.handle} />
 
               {/* Photos Section */}
-              <View style={styles.photosSection}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Photos</Text>
-                  <TouchableOpacity onPress={handleShowAllPhotos}>
-                    <Text style={styles.showAllButton}>Show All</Text>
-                  </TouchableOpacity>
-                </View>
-                
-                                 <ScrollView
-                   horizontal
-                   showsHorizontalScrollIndicator={false}
-                   style={styles.photosScrollView}
-                 >
-                   {/* Camera button */}
-                   <TouchableOpacity 
-                     style={styles.cameraButton}
-                     onPress={async () => {
-                       try {
+              <PhotoSelector
+                onPhotoSelect={handlePhotoSelect}
+                onCameraPress={async () => {
                          hideBottomSheet();
-                         
-                         // Check camera permissions first
-                         const { status } = await ImagePicker.getCameraPermissionsAsync();
-                         console.log('📷 Camera permission status:', status);
-                         
-                         if (status !== 'granted') {
-                           console.log('📷 Requesting camera permissions...');
-                           const { status: newStatus } = await ImagePicker.requestCameraPermissionsAsync();
-                           console.log('📷 New camera permission status:', newStatus);
-                           
-                           if (newStatus !== 'granted') {
-                             Alert.alert(
-                               'Camera Permission',
-                               'Camera access is required to take photos. Please enable it in Settings.',
-                               [{ text: 'OK' }]
-                             );
-                             return;
-                           }
-                         }
-                         
-                         console.log('📷 Using camera via pickImage...');
-                         // Use the existing pickImage function with camera option
-                         await pickImage();
-                       } catch (error) {
-                         console.error('📷 Camera error:', error);
-                         Alert.alert(
-                           'Camera Error',
-                           'Unable to access camera. Please try again.',
-                           [{ text: 'OK' }]
-                         );
-                       }
-                     }}
-                   >
-                     <Camera size={24} color="#666" />
-                   </TouchableOpacity>
-                   
-                   {/* Recent photos */}
-                   {loadingPhotos ? (
-                     <View style={styles.loadingPhotosContainer}>
-                       <ActivityIndicator size="small" color="#8b5cf6" />
-                       <Text style={styles.loadingPhotosText}>Loading photos...</Text>
-                     </View>
-                   ) : recentPhotos.length > 0 ? (
-                     recentPhotos.map(renderPhotoItem)
-                   ) : (
-                     <View style={styles.noPhotosContainer}>
-                       <Text style={styles.noPhotosText}>No recent photos</Text>
-                     </View>
-                   )}
-                 </ScrollView>
-              </View>
+                  await captureImage();
+                }}
+                onShowAllPress={handleShowAllPhotos}
+                maxPhotos={8}
+              />
 
               {/* Tools Section */}
               <View style={styles.toolsSection}>
@@ -827,85 +861,11 @@ export default function ChatInput({
         </View>
       </Modal>
 
-      {/* Styles Selection Modal */}
-      <Modal
-        visible={showStylesModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowStylesModal(false)}
-      >
-        <View style={styles.stylesModalOverlay}>
-          <TouchableOpacity 
-            style={styles.stylesModalBackdrop}
-            activeOpacity={1}
-            onPress={() => setShowStylesModal(false)}
-          />
-          <View style={styles.stylesModalContainer}>
-            <View style={styles.stylesModalHeader}>
-              <Text style={styles.stylesModalTitle}>Image Styles</Text>
-              <TouchableOpacity 
-                style={styles.stylesModalClose}
-                onPress={() => setShowStylesModal(false)}
-              >
-                <X size={20} color="#ffffff" />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView 
-              style={styles.stylesScrollView}
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={styles.stylesGrid}>
-                {IMAGE_STYLES.map((style) => (
-                  <TouchableOpacity
-                    key={style.value}
-                    style={[
-                      styles.styleItem,
-                      selectedImageStyle?.value === style.value && styles.styleItemSelected
-                    ]}
-                                         onPress={() => {
-                       setSelectedImageStyle(style);
-                       setShowStylesModal(false);
-                       
-                       // Append style prompt to current input text
-                       const currentText = inputText.trim();
-                       let newMessage;
-                       
-                       if (currentText) {
-                         // If there's existing text, prepend the style prompt with line breaks
-                         newMessage = `${style.prompt}\n\n${currentText}`;
-                       } else {
-                         // If no existing text, just use the style prompt
-                         newMessage = style.prompt;
-                       }
-                       
-                       setInputText(newMessage);
-                     }}
-                  >
-                    <View style={styles.styleImageContainer}>
-                      <Image 
-                        source={typeof style.imageUrl === 'string' ? { uri: style.imageUrl } : style.imageUrl}
-                        style={styles.styleImage}
-                        resizeMode="cover"
-                      />
-                      {selectedImageStyle?.value === style.value && (
-                        <View style={styles.styleSelectedOverlay}>
-                          <View style={styles.styleSelectedIcon}>
-                            <Text style={styles.styleSelectedCheckmark}>✓</Text>
-                          </View>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={styles.styleItemText} numberOfLines={2}>
-                      {style.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      {/* Image Model Selection Modal */}
+      {renderImageModelSelector()}
+
+      {/* Style Selection Modal */}
+      {renderStyleSelector()}
     </>
   );
 }
@@ -1113,75 +1073,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   
-  // Photos Section
-  photosSection: {
-    paddingHorizontal: 16,
-    marginBottom: 24,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  showAllButton: {
-    color: '#007AFF',
-    fontSize: 16,
-    fontWeight: '400',
-  },
-  photosScrollView: {
-    flexDirection: 'row',
-  },
-  cameraButton: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
-    backgroundColor: '#2c2c2e',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-  },
-  photoItem: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
-    marginRight: 8,
-    overflow: 'hidden',
-  },
-  photoImage: {
-    width: '100%',
-    height: '100%',
-  },
-  noPhotosContainer: {
-    width: 120,
-    height: 64,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-  },
-  noPhotosText: {
-    color: '#666',
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  loadingPhotosContainer: {
-    width: 120,
-    height: 64,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-    gap: 4,
-  },
-  loadingPhotosText: {
-    color: '#8b5cf6',
-    fontSize: 11,
-    textAlign: 'center',
-  },
+
   
   // Tools Section
   toolsSection: {
@@ -1289,122 +1181,147 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     lineHeight: 12,
   },
+
+  toolItemLoading: {
+    opacity: 0.6,
+  },
   selectedToolsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  stylesChip: {
+
+  // Image Model Badge (Blue themed)
+  imageModelBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(147, 51, 234, 0.15)',
+    backgroundColor: 'rgba(59, 130, 246, 0.15)', // Blue background
     borderRadius: 16,
     paddingVertical: 6,
     paddingHorizontal: 12,
-    gap: 6,
+    marginRight: 8,
   },
-  stylesChipText: {
-    color: '#a855f7',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  stylesModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  imageModelIcon: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#3b82f6', // Blue background
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 8,
   },
-  stylesModalBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+  imageModelBadgeText: {
+    color: '#3b82f6', // Blue text
+    fontSize: 12,
+    fontWeight: '500',
   },
-  stylesModalContainer: {
-    backgroundColor: '#161618',
-    borderRadius: 20,
-    width: '90%',
-    maxWidth: 400,
-    maxHeight: '80%',
-    overflow: 'hidden',
-  },
-  stylesModalHeader: {
+
+  // Style Badge (Purple themed - matching existing)
+  styleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(147, 51, 234, 0.15)', // Purple background
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
   },
-  stylesModalTitle: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  stylesModalClose: {
-    padding: 4,
-  },
-  stylesScrollView: {
-    maxHeight: 400,
-  },
-  stylesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 20,
-    gap: 16,
-    justifyContent: 'space-between',
-  },
-  styleItem: {
-    width: '30%',
+  styleIcon: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#8B5CF6', // Purple background
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
-  },
-  styleItemSelected: {
-    transform: [{ scale: 0.95 }],
-  },
-  styleImageContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    marginRight: 8,
     overflow: 'hidden',
-    position: 'relative',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
-  styleImage: {
+  styleIconImage: {
     width: '100%',
     height: '100%',
   },
-  styleSelectedOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(147, 51, 234, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  styleSelectedIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#ffffff',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  styleSelectedCheckmark: {
-    color: '#9333ea',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  styleItemText: {
-    color: '#ffffff',
+  styleBadgeText: {
+    color: '#8B5CF6', // Purple text
     fontSize: 12,
     fontWeight: '500',
-    textAlign: 'center',
-    lineHeight: 14,
   },
+
+  // Modal styles matching ChatInterface.tsx
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modelSelectorContainer: {
+    backgroundColor: '#353535',
+    borderRadius: 12,
+    padding: 16,
+    margin: 20,
+    minWidth: 280,
+    maxHeight: '70%',
+    borderWidth: 1,
+    borderColor: '#525252',
+  },
+  modelOptionsScroll: {
+    maxHeight: 400,
+  },
+  modelOptionsContent: {
+    paddingBottom: 8,
+  },
+  modelSelectorTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  modelOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginVertical: 1,
+    gap: 12,
+  },
+  selectedModelOption: {
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+  },
+  modelIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#525252',
+    overflow: 'hidden',
+  },
+  modelInfo: {
+    flex: 1,
+  },
+  modelName: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  modelProvider: {
+    color: '#9ca3af',
+    fontSize: 12,
+    fontWeight: '400',
+    textTransform: 'capitalize',
+  },
+  selectedIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#3b82f6',
+  },
+  stylePreviewImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 18,
+  },
+
 }); 

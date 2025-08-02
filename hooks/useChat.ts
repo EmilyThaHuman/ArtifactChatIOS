@@ -22,6 +22,9 @@ export interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool';
   timestamp: Date;
   isStreaming?: boolean;
+  isStreamComplete?: boolean;
+  messageStatus?: 'streaming' | 'completed' | 'error';
+  skipDatabaseSave?: boolean;
   metadata?: any;
   files?: VectorStoreFile[];
   toolCalls?: any[];
@@ -45,7 +48,8 @@ export interface UseChatOptions {
   enableMemories?: boolean;
   onError?: (error: Error) => void;
   onThreadTitleUpdated?: (threadId: string, newTitle: string) => void;
-  onToolCall?: (toolCall: any) => void;
+  onToolCall?: (toolCall: any, messageId?: string) => void;
+  onToolCallComplete?: (toolResult: any) => void;
   onReasoningUpdate?: (content: string) => void;
 }
 
@@ -89,6 +93,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     onError,
     onThreadTitleUpdated,
     onToolCall,
+    onToolCallComplete,
     onReasoningUpdate,
   } = options;
 
@@ -101,6 +106,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastUserMessageRef = useRef<string>('');
   const streamProviderChatRef = useRef<StreamProviderChat | null>(null);
+  const completionProcessedRef = useRef<Set<string>>(new Set()); // Track processed completions per message ID
 
   // Initialize StreamProviderChat
   useEffect(() => {
@@ -191,6 +197,11 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       return;
     }
 
+    if (message.skipDatabaseSave) {
+      console.log(`Skipping database save for message ${message.id} - skipDatabaseSave flag set`);
+      return;
+    }
+
     try {
       // Prepare metadata with all message properties except toolCalls (which goes in dedicated column)
       const messageMetadata = {
@@ -259,6 +270,9 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       return;
     }
 
+    // Clear any previous completion tracking to prevent stale state
+    completionProcessedRef.current.clear();
+
     lastUserMessageRef.current = content.trim();
 
     // Merge options with defaults
@@ -269,92 +283,8 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       model: messageOptions.model ?? model,
     };
 
-    // Handle special tool processing before sending to AI
+    // Let the AI decide which tools to use instead of preprocessing
     let processedContent = content.trim();
-    let shouldBypassAI = false;
-    
-    // Handle image generation tool
-    if (toolChoiceOverride?.toolId === 'create-image') {
-      console.log('🎨 [useChat] Processing image generation request');
-      try {
-        const chatService = new ChatCompletionService();
-        const imageResult = await chatService.generateImage({
-          prompt: processedContent,
-          model: 'gpt-image-1', // Default image model
-          size: '1024x1024',
-          quality: 'medium',
-          n: 1,
-        });
-
-        // Create image response message
-        const imageMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          content: `I've generated an image based on your request: "${processedContent}"`,
-          role: 'assistant',
-          timestamp: new Date(),
-          metadata: {
-            toolResult: true,
-            toolType: 'image_generation',
-            imageData: imageResult.data[0],
-            prompt: processedContent,
-          },
-        };
-
-        // Add user message and image result
-        const userMessage: Message = {
-          id: Date.now().toString(),
-          content: processedContent,
-          role: 'user',
-          timestamp: new Date(),
-          files: files && files.length > 0 ? files : undefined,
-        };
-
-        setMessages(prev => [...prev, userMessage, imageMessage]);
-        
-        // Save messages to database
-        await saveMessageToDatabase(userMessage);
-        await saveMessageToDatabase(imageMessage);
-        
-        // Clear tool selection
-        if (onToolCall) {
-          onToolCall({ type: 'image_generation', result: imageResult });
-        }
-        
-        return;
-      } catch (error) {
-        console.error('❌ [useChat] Image generation error:', error);
-        Alert.alert('Error', 'Failed to generate image. Please try again.');
-        return;
-      }
-    }
-
-    // Handle web search tool
-    if (toolChoiceOverride?.toolId === 'web-search') {
-      console.log('🔍 [useChat] Processing web search request');
-      try {
-        const searchResult = await webSearchService.search({
-          query: processedContent,
-          limit: 10,
-          searchContextSize: 'medium',
-        });
-
-        if ('error' in searchResult) {
-          throw new Error(searchResult.message);
-        }
-
-        // Format search results for context
-        const searchContext = `Here are the search results for "${processedContent}":\n\n${searchResult.content}\n\nSources:\n${searchResult.sources.map((source, index) => `${index + 1}. ${source.title} - ${source.url}`).join('\n')}`;
-        
-        // Update content to include search context and continue with AI processing
-        processedContent = `Based on the following web search results, please provide a comprehensive answer to the user's question: "${content}"\n\n${searchContext}`;
-        
-        console.log('🔍 [useChat] Web search completed, proceeding with AI processing');
-      } catch (error) {
-        console.error('❌ [useChat] Web search error:', error);
-        Alert.alert('Error', 'Failed to perform web search. Please try again.');
-        return;
-      }
-    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -640,6 +570,50 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
               required: ['prompt', 'name']
             }
           }
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'image_edit',
+            description: 'Edit existing images using AI. Can modify, enhance, or transform uploaded images based on text instructions.',
+            parameters: {
+              type: 'object',
+              properties: {
+                prompt: {
+                  type: 'string',
+                  description: 'Detailed instructions for how to edit the image'
+                },
+                name: {
+                  type: 'string',
+                  description: 'Name or title for the edited image'
+                },
+                model: {
+                  type: 'string',
+                  description: 'Image editing model to use',
+                  enum: ['gpt-image-1', 'dall-e-3'],
+                  default: 'gpt-image-1'
+                },
+                size: {
+                  type: 'string',
+                  description: 'Output image size',
+                  enum: ['1024x1024', '1792x1024', '1024x1792'],
+                  default: '1024x1024'
+                },
+                image_urls: {
+                  type: 'array',
+                  items: {
+                    type: 'string'
+                  },
+                  description: 'URLs of the images to edit (extracted from conversation context)'
+                },
+                mask_url: {
+                  type: 'string',
+                  description: 'Optional mask image URL for selective editing'
+                }
+              },
+              required: ['prompt', 'name']
+            }
+          }
         }
       ];
 
@@ -701,62 +675,187 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           console.log('✅ [useChat] Stream completed:', {
             contentLength: finalContent.length,
             messageId: assistantMessageId,
-            toolCallsExecuted: state.pendingToolCalls.length
+            toolCallsExecuted: state.pendingToolCalls.length,
+            hasToolResults: !!state.metadata.toolResults?.length,
+            streamingMessageIdBeforeProcessing: streamingMessageId,
+            pendingToolCallsCount: state.pendingToolCalls.length,
+            hasToolCalls: state.pendingToolCalls.length > 0
           });
 
-          const finalAssistantMessage: Message = {
-            id: assistantMessageId,
-            content: finalContent,
-            role: 'assistant',
-            timestamp: new Date(),
-            isStreaming: false,
-            toolCalls: state.pendingToolCalls.length > 0 ? state.pendingToolCalls : undefined,
-            metadata: {
-              ...state.metadata,
-              streamingState: state,
-              originalToolChoice: toolChoiceOverride,
-            },
-            reasoningContent: state.reasoningState.reasoningContent || undefined,
-            reasoningMetadata: state.reasoningState.reasoningDuration ? {
-              duration: state.reasoningState.reasoningDuration,
-              startTime: state.reasoningState.reasoningStartTime,
-            } : undefined,
-          };
+          // Prevent duplicate processing for the same message
+          if (completionProcessedRef.current.has(assistantMessageId)) {
+            console.log('⚠️ [useChat] Completion already processed for message:', assistantMessageId);
+            return;
+          }
 
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantMessageId ? finalAssistantMessage : msg
-          ));
+          // Mark this completion as processed
+          completionProcessedRef.current.add(assistantMessageId);
 
-          setCurrentStreamingState(null);
+          // Check if this is a tool call completion with tool results
+          const hasToolCalls = state.pendingToolCalls.length > 0;
+          const hasToolResults = state.metadata.toolResults && state.metadata.toolResults.length > 0;
 
-          // Save assistant message to database
-          await saveMessageToDatabase(finalAssistantMessage);
+          console.log('🔍 [useChat] Completion logic check:', {
+            hasToolCalls,
+            hasToolResults,
+            pendingToolCallsCount: state.pendingToolCalls.length,
+            toolResultsCount: state.metadata.toolResults?.length || 0,
+            willEnterToolCallBranch: hasToolCalls && hasToolResults,
+            willEnterKeepActiveBranch: hasToolCalls && !hasToolResults,
+            willEnterRegularBranch: !hasToolCalls
+          });
 
-          // Add tool result messages if any
-          if (state.metadata.toolResults && state.metadata.toolResults.length > 0) {
-            const toolMessages: Message[] = state.metadata.toolResults.map((result: any, index: number) => ({
-              id: `${assistantMessageId}-tool-${index}`,
-              content: result.content,
-              role: 'tool' as const,
+          if (hasToolCalls && hasToolResults) {
+            console.log('🔧 [useChat] Processing tool call completion with results');
+            
+            // Create tool call message with single space content (matching expected structure)
+            const toolCallMessage: Message = {
+              id: assistantMessageId,
+              content: ' ', // Single space as per expected structure
+              role: 'assistant',
               timestamp: new Date(),
-              toolCallId: result.tool_call_id,
-              name: result.name,
-              metadata: { toolResult: result },
-            }));
+              isStreaming: false,
+              isStreamComplete: true,
+              messageStatus: 'completed',
+              toolCalls: state.pendingToolCalls, // Tool calls with embedded results
+              skipDatabaseSave: false, // This message should be saved to database
+              metadata: {
+                ...state.metadata,
+                message_type: 'tool_call_with_results',
+                save_priority: 'critical',
+                toolResultsCount: state.metadata.toolResults?.length || 0,
+                isToolCallMessage: true,
+                toolExecutionComplete: true,
+              },
+              reasoningContent: state.reasoningState.reasoningContent || undefined,
+              reasoningMetadata: state.reasoningState.reasoningDuration ? {
+                duration: state.reasoningState.reasoningDuration,
+                startTime: state.reasoningState.reasoningStartTime,
+              } : undefined,
+            };
 
-            // Add tool messages to the conversation
-            setMessages(prev => [...prev, ...toolMessages]);
+            // Create separate follow-up message with AI response content
+            const followUpMessage: Message = {
+              id: `${assistantMessageId}_followup`,
+              content: finalContent,
+              role: 'assistant',
+              timestamp: new Date(),
+              isStreaming: false,
+              isStreamComplete: true,
+              messageStatus: 'completed',
+              skipDatabaseSave: true, // This message should NOT be saved to database
+              metadata: {
+                isFollowUpContent: true,
+                toolCallMessageId: assistantMessageId,
+                followUpCompleted: true,
+                completedAt: new Date().toISOString(),
+                hasContentInFollowUp: true,
+                save_priority: 'low',
+                save_sequence: 3,
+                provider: state.metadata.provider,
+                model: state.metadata.model,
+              },
+            };
 
-            // Save tool messages to database
-            for (const toolMessage of toolMessages) {
-              await saveMessageToDatabase(toolMessage);
+            console.log('🔧 [useChat] Tool call message created:', {
+              messageId: toolCallMessage.id,
+              hasToolCalls: !!toolCallMessage.toolCalls?.length,
+              toolCallsCount: toolCallMessage.toolCalls?.length || 0,
+              toolCallIds: toolCallMessage.toolCalls?.map(tc => tc.id) || [],
+              contentLength: toolCallMessage.content.length,
+              skipDatabaseSave: toolCallMessage.skipDatabaseSave,
+              toolCallsWithResults: toolCallMessage.toolCalls?.map(tc => ({
+                id: tc.id,
+                name: tc.function?.name,
+                hasResult: !!tc.result,
+                resultKeys: tc.result ? Object.keys(tc.result) : [],
+                hasSourcesInResult: !!tc.result?.sources,
+                sourcesCount: tc.result?.sources?.length || 0
+              }))
+            });
+
+            console.log('🔧 [useChat] Follow-up message created:', {
+              messageId: followUpMessage.id,
+              contentLength: followUpMessage.content.length,
+              skipDatabaseSave: followUpMessage.skipDatabaseSave,
+              isFollowUp: true
+            });
+
+            // Update messages: replace streaming message with tool call message, then add follow-up
+            setMessages(prev => {
+              const updatedMessages = prev.map(msg => 
+                msg.id === assistantMessageId ? toolCallMessage : msg
+              );
+              // Add the follow-up message
+              updatedMessages.push(followUpMessage);
+              return updatedMessages;
+            });
+
+            // Save only the tool call message to database (follow-up has skipDatabaseSave: true)
+            try {
+              await saveMessageToDatabase(toolCallMessage);
+              console.log('💾 [useChat] Tool call message saved successfully');
+            } catch (error: any) {
+              if (error.code !== '23505') { // Ignore duplicate key errors
+                console.error('💾 [useChat] Failed to save tool call message:', error);
+              }
             }
+
+            // Clear streaming state AFTER tool completion
+            setCurrentStreamingState(null);
+            setStreamingMessageId(null);
+
+          } else if (hasToolCalls && !hasToolResults) {
+            // Tool calls detected but tools haven't executed yet - keep streaming state active
+            console.log('🛠️ [useChat] Tool calls detected, keeping streaming state active for shimmer text', {
+              streamingMessageIdWillRemain: streamingMessageId,
+              pendingToolCallsCount: state.pendingToolCalls.length,
+              toolCallNames: state.pendingToolCalls.map(tc => tc.function?.name)
+            });
+            // DON'T clear streamingMessageId here - wait for tool execution to complete
+            
+          } else {
+            // Regular completion without tool calls
+            const finalAssistantMessage: Message = {
+              id: assistantMessageId,
+              content: finalContent,
+              role: 'assistant',
+              timestamp: new Date(),
+              isStreaming: false,
+              metadata: {
+                ...state.metadata,
+                streamingState: state,
+              },
+              reasoningContent: state.reasoningState.reasoningContent || undefined,
+              reasoningMetadata: state.reasoningState.reasoningDuration ? {
+                duration: state.reasoningState.reasoningDuration,
+                startTime: state.reasoningState.reasoningStartTime,
+              } : undefined,
+            };
+
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMessageId ? finalAssistantMessage : msg
+            ));
+
+            // Save assistant message to database
+            try {
+              await saveMessageToDatabase(finalAssistantMessage);
+            } catch (error: any) {
+              if (error.code !== '23505') { // Ignore duplicate key errors
+                console.error('💾 [useChat] Failed to save regular message:', error);
+              }
+            }
+
+            // Clear streaming state for regular messages only
+            setCurrentStreamingState(null);
+            setStreamingMessageId(null);
           }
         },
 
         onError: (error: Error) => {
           console.error('❌ [useChat] Streaming error:', error);
           setCurrentStreamingState(null);
+          setStreamingMessageId(null); // Clear on error
           onError?.(error);
 
           // Update message with error
@@ -773,8 +872,23 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         },
 
         onToolCall: (toolCall: any) => {
-          console.log('🛠️ [useChat] Tool call detected:', toolCall.function?.name);
-          onToolCall?.(toolCall);
+          console.log('🛠️ [useChat] Tool call detected:', {
+            toolName: toolCall.function?.name,
+            toolId: toolCall.id,
+            streamingMessageIdAtCallback: streamingMessageId,
+            isStreamingMessageIdSet: !!streamingMessageId
+          });
+          // Pass the current streamingMessageId when calling the callback
+          onToolCall?.(toolCall, streamingMessageId || undefined);
+        },
+
+        onToolCallComplete: (toolResult: any) => {
+          console.log('✅ [useChat] Tool call completed:', {
+            toolCallId: toolResult.tool_call_id,
+            toolName: toolResult.name,
+            hasResult: !!toolResult.result
+          });
+          onToolCallComplete?.(toolResult);
         },
 
         onReasoningUpdate: (reasoningContent: string) => {
@@ -831,7 +945,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       }
     } finally {
       setIsLoading(false);
-      setStreamingMessageId(null);
+      // Note: streamingMessageId is now cleared in onComplete after tool execution
       abortControllerRef.current = null;
     }
   }, [

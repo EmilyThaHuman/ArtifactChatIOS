@@ -270,7 +270,7 @@ export function NavChatHistory({
         >
           <View style={styles.threadContent}>
             {thread.metadata?.bookmarked && (
-              <Bookmark size={14} color={Colors.purple400} style={styles.bookmarkIcon} />
+              <Bookmark size={14} color="#6b7280" style={styles.bookmarkIcon} />
             )}
             
             {isThreadRenaming ? (
@@ -406,7 +406,6 @@ export function NavChatHistory({
         <View style={styles.historyHeaderContent}>
           {totalThreadsCount > 0 ? (
             <View style={styles.historyHeaderIcon}>
-              <History size={18} color={Colors.textLight} />
               {!isCollapsed && (
                 isExpanded ? (
                   <ChevronDown size={18} color={Colors.textLight} />
@@ -416,7 +415,13 @@ export function NavChatHistory({
               )}
             </View>
           ) : (
-            <History size={18} color={Colors.textSecondary} />
+            !isCollapsed && (
+              isExpanded ? (
+                <ChevronDown size={18} color={Colors.textSecondary} />
+              ) : (
+                <ChevronRight size={18} color={Colors.textSecondary} />
+              )
+            )
           )}
           
           {!isCollapsed && (
@@ -498,7 +503,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   threadItemSelected: {
-    backgroundColor: 'rgba(147, 51, 234, 0.15)',
+    backgroundColor: 'rgba(107, 114, 128, 0.15)',
   },
   threadContent: {
     flex: 1,
@@ -512,12 +517,12 @@ const styles = StyleSheet.create({
   threadTitle: {
     flex: 1,
     color: Colors.textLight,
-    fontSize: 13,
+    fontSize: 14,
   },
   threadInput: {
     flex: 1,
     color: Colors.textLight,
-    fontSize: 13,
+    fontSize: 14,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 4,
     paddingHorizontal: 8,

@@ -11,11 +11,7 @@ import {
   MessageCircle, 
   MoreHorizontal, 
   Trash2, 
-  Edit3, 
   Share, 
-  Copy,
-  Plus,
-  Calendar,
 } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 
@@ -253,26 +249,8 @@ export default function WorkspaceChats({
       </View>
       <Text style={styles.emptyTitle}>No chats yet</Text>
       <Text style={styles.emptySubtitle}>
-        Start a new conversation in this workspace to see it here
+        Conversations in this workspace will appear here
       </Text>
-      
-      {onCreateChat && (
-        <TouchableOpacity
-          style={styles.createButton}
-          onPress={onCreateChat}
-          disabled={creatingChat}
-          activeOpacity={0.7}
-        >
-          {creatingChat ? (
-            <LoadingSpinner size={16} color="white" />
-          ) : (
-            <Plus size={16} color="white" />
-          )}
-          <Text style={styles.createButtonText}>
-            {creatingChat ? 'Creating...' : 'Start New Chat'}
-          </Text>
-        </TouchableOpacity>
-      )}
     </View>
   );
 
@@ -448,22 +426,8 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
     lineHeight: 20,
-    marginBottom: 24,
   },
-  createButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.purple500,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    gap: 8,
-  },
-  createButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: 'white',
-  },
+
   loadingState: {
     flex: 1,
     justifyContent: 'center',

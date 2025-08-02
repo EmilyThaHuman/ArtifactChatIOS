@@ -1,4 +1,4 @@
-import { ToolCall, accumulateToolCalls } from './streamingUtils';
+import { ToolCall, accumulateToolCalls, isCompleteJsonObject } from './streamingUtils';
 
 // Delta processing interfaces
 export interface StreamDelta {
@@ -74,10 +74,14 @@ export function extractDeltaContent(delta: StreamDelta, modelProvider: string): 
   let deltaContent = '';
   let reasoningContent = '';
 
+
+
   // Handle backend SSE format (wrapped in chunk)
   if (delta.choices && delta.choices[0] && delta.choices[0].delta) {
-    deltaContent = delta.choices[0].delta.content || '';
-    reasoningContent = delta.choices[0].delta.reasoning_content || '';
+    const deltaData = delta.choices[0].delta;
+    deltaContent = deltaData.content || '';
+    reasoningContent = deltaData.reasoning_content || '';
+
   } else if (delta.delta?.text) {
     // Direct Anthropic format (legacy support)
     deltaContent = delta.delta.text || '';
@@ -329,6 +333,8 @@ export function processToolCallsFromDelta(
   let canvasTriggered = false;
   let hasCodeInterpreterUpdates = false;
 
+
+
   // Handle backend SSE format
   if (delta.choices && delta.choices[0]?.delta?.tool_calls) {
     bufferingForToolCall = true;
@@ -418,10 +424,14 @@ export function processToolCallsFromDelta(
  * Check if tool calls are complete
  */
 export function areToolCallsComplete(pendingToolCalls: ToolCall[]): boolean {
-  if (pendingToolCalls.length === 0) return false;
+  if (pendingToolCalls.length === 0) {
+    return false;
+  }
 
   return pendingToolCalls.some((tc) => {
-    if (!tc.function?.arguments) return false;
+    if (!tc.function?.arguments) {
+      return false;
+    }
     try {
       JSON.parse(tc.function.arguments);
       return true;
@@ -515,9 +525,16 @@ export function processStreamDelta(params: {
 
   if (delta.choices && delta.choices[0]?.finish_reason) {
     streamCompleted = true;
+    console.log(`🏁 [DeltaProcessing] Stream completed with finish_reason:`, delta.choices[0].finish_reason);
 
     if (delta.choices[0].finish_reason === 'tool_calls') {
       updatedToolCallsFullyAccumulated = true;
+      console.log(`🛠️ [DeltaProcessing] Tool calls completion detected:`, {
+        finishReason: delta.choices[0].finish_reason,
+        currentPendingToolCalls: toolCallResult.pendingToolCalls.length,
+        hasToolCallsInDelta: !!delta.choices[0].delta?.tool_calls,
+        toolCallsInDelta: delta.choices[0].delta?.tool_calls?.length || 0
+      });
 
       // Ensure we have tool calls in pending array
       if (

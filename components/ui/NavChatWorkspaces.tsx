@@ -7,6 +7,7 @@ import {
   FlatList,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import {
   ChevronDown,
@@ -29,6 +30,9 @@ interface Workspace {
   is_team: boolean;
   metadata?: {
     color?: string;
+    avatar_url?: string;
+    icon?: string;
+    description?: string;
   };
   workspace_threads?: string[];
 }
@@ -97,13 +101,8 @@ export default function NavChatWorkspaces({
     );
   };
 
-  const getWorkspaceColor = (workspace: Workspace) => {
-    return workspace.metadata?.color || Colors.purple500;
-  };
-
   const renderWorkspaceItem = ({ item }: { item: Workspace }) => {
     const isSelected = currentWorkspaceId === item.id;
-    const workspaceColor = getWorkspaceColor(item);
     const threadCount = item.workspace_threads?.length || 0;
 
     return (
@@ -116,16 +115,21 @@ export default function NavChatWorkspaces({
         activeOpacity={0.7}
       >
         <View style={styles.workspaceLeft}>
-          <View 
-            style={[
-              styles.workspaceIcon, 
-              { backgroundColor: workspaceColor }
-            ]}
-          >
-            {item.is_team ? (
-              <Users size={12} color="white" />
+          <View style={styles.workspaceIcon}>
+            {item.metadata?.avatar_url ? (
+              <Image 
+                source={{ uri: item.metadata.avatar_url }}
+                style={styles.workspaceAvatar}
+                defaultSource={require('@/assets/images/icon.png')}
+              />
             ) : (
-              <Folder size={12} color="white" />
+              <View style={styles.workspaceIconFallback}>
+                {item.is_team ? (
+                  <Users size={16} color="#6b7280" />
+                ) : (
+                  <Folder size={16} color="#6b7280" />
+                )}
+              </View>
             )}
           </View>
           
@@ -171,7 +175,7 @@ export default function NavChatWorkspaces({
         onPress={handleCreateWorkspace}
         activeOpacity={0.7}
       >
-        <Plus size={12} color={Colors.purple500} />
+        <Plus size={12} color="#ffffff" />
         <Text style={styles.createFirstButtonText}>Create your first project</Text>
       </TouchableOpacity>
     </View>
@@ -201,9 +205,9 @@ export default function NavChatWorkspaces({
           activeOpacity={0.7}
         >
           {isCreating ? (
-            <ActivityIndicator size={12} color={Colors.purple500} />
+            <ActivityIndicator size={12} color="#ffffff" />
           ) : (
-            <Plus size={12} color={Colors.purple500} />
+            <Plus size={12} color="#ffffff" />
           )}
         </TouchableOpacity>
       </TouchableOpacity>
@@ -262,7 +266,7 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: 'rgba(147, 51, 234, 0.1)',
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -299,12 +303,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   workspaceIcon: {
-    width: 20,
-    height: 20,
+    width: 24,
+    height: 24,
+    borderRadius: 4,
+    marginRight: 8,
+    overflow: 'hidden',
+  },
+  workspaceAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 4,
+  },
+  workspaceIconFallback: {
+    width: 24,
+    height: 24,
     borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
+    backgroundColor: 'transparent',
   },
   workspaceInfo: {
     flex: 1,
@@ -316,7 +332,7 @@ const styles = StyleSheet.create({
     marginBottom: 1,
   },
   workspaceNameSelected: {
-    color: Colors.purple400,
+    color: '#9ca3af',
   },
   workspaceSubtitle: {
     color: Colors.textSecondary,
@@ -342,14 +358,16 @@ const styles = StyleSheet.create({
   createFirstButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(147, 51, 234, 0.1)',
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#374151',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 4,
     gap: 4,
   },
   createFirstButtonText: {
-    color: Colors.purple500,
+    color: '#ffffff',
     fontSize: 11,
     fontWeight: '500',
   },

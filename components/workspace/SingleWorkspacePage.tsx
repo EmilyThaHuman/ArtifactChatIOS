@@ -44,6 +44,7 @@ import Sidebar from '@/components/ui/Sidebar';
 import { ThreadManager } from '@/lib/threads';
 import WorkspaceInput from '@/components/ui/WorkspaceInput';
 import { AssistantCircles } from '@/components/ui/AssistantCircles';
+import WorkspaceIcon from './WorkspaceIcon';
 import { ALL_MODELS, MODEL_CATEGORY_COLORS, ModelInfo } from '@/constants/Models';
 import { OpenAIIcon } from '@/components/ui/OpenAIIcon';
 import { 
@@ -559,11 +560,28 @@ export default function SingleWorkspacePage({ workspaceId }: SingleWorkspacePage
       </SafeAreaView>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Large Folder Icon */}
+        {/* Workspace Icon */}
         <View style={styles.iconSection}>
-          <View style={styles.folderIconContainer}>
-            <Folder size={48} color={Colors.textSecondary} />
-          </View>
+          <WorkspaceIcon
+            workspace={workspace}
+            onWorkspaceUpdate={async (updatedData) => {
+              try {
+                const { error } = await supabase
+                  .from('workspaces')
+                  .update(updatedData)
+                  .eq('id', workspaceId);
+
+                if (error) throw error;
+
+                // Update local workspace state
+                setWorkspace(prev => prev ? { ...prev, ...updatedData } : null);
+              } catch (error) {
+                console.error('Error updating workspace:', error);
+                throw error;
+              }
+            }}
+            size={80}
+          />
         </View>
 
         {/* Workspace Title */}
@@ -956,7 +974,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1057,7 +1075,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1066,18 +1084,8 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
     paddingHorizontal: 16,
   },
-  folderIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
   titleSection: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
@@ -1085,7 +1093,7 @@ const styles = StyleSheet.create({
     color: Colors.textLight,
     fontSize: 28,
     fontWeight: '700',
-    textAlign: 'center',
+    textAlign: 'left',
   },
   featuresSection: {
     paddingHorizontal: 16,

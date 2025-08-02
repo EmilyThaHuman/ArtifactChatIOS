@@ -5,25 +5,16 @@ import {
   StyleSheet,
   TouchableOpacity,
   Image,
-  Alert,
   Modal,
   ScrollView,
 } from 'react-native';
 import {
   Bell,
-  Settings,
   User,
-  LogOut,
-  FileText,
-  Shield,
-  HelpCircle,
-  Moon,
-  Sun,
-  ChevronRight,
   X,
   Trash2,
 } from 'lucide-react-native';
-import SettingsSheet from './SettingsSheet';
+import UnifiedSettingsSheet from './UnifiedSettingsSheet';
 
 interface UserProfile {
   id: string;
@@ -68,9 +59,9 @@ export function NavChatUser({
   onToggleTheme,
   isDarkTheme = true,
 }: NavChatUserProps) {
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSettingsSheetOpen, setIsSettingsSheetOpen] = useState(false);
+  const [selectedSettingsTab, setSelectedSettingsTab] = useState('menu');
 
   // Get display name and avatar
   const displayName = user?.full_name || 
@@ -80,24 +71,7 @@ export function NavChatUser({
   const displayEmail = user?.email || user?.user_metadata?.email || '';
   const avatarUrl = user?.avatar_url || user?.user_metadata?.avatar_url;
 
-  // Handle logout
-  const handleLogout = useCallback(() => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: () => {
-            setIsUserMenuOpen(false);
-            onLogout?.();
-          },
-        },
-      ]
-    );
-  }, [onLogout]);
+
 
   // Handle notifications
   const handleNotificationsToggle = useCallback(() => {
@@ -105,16 +79,9 @@ export function NavChatUser({
     onNotificationsOpen?.();
   }, [isNotificationsOpen, onNotificationsOpen]);
 
-  // Handle settings - now opens the comprehensive settings sheet
-  const handleSettings = useCallback(() => {
-    setIsUserMenuOpen(false);
-    setIsSettingsSheetOpen(true);
-    onSettingsOpen?.();
-  }, [onSettingsOpen]);
-
-  // Handle profile
-  const handleProfile = useCallback(() => {
-    setIsUserMenuOpen(false);
+  // Handle user profile click - opens unified settings sheet
+  const handleUserClick = useCallback(() => {
+    setSelectedSettingsTab('menu');
     setIsSettingsSheetOpen(true);
     onProfileOpen?.();
   }, [onProfileOpen]);
@@ -209,120 +176,7 @@ export function NavChatUser({
     </Modal>
   ), [isNotificationsOpen, notifications, unreadCount]);
 
-  // Render user menu modal
-  const renderUserMenuModal = useCallback(() => (
-    <Modal
-      visible={isUserMenuOpen}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setIsUserMenuOpen(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.userMenuModal}>
-          {/* User Info Header */}
-          <View style={styles.userMenuHeader}>
-            <View style={styles.userMenuAvatar}>
-              {renderUserAvatar()}
-            </View>
-            <View style={styles.userMenuInfo}>
-              <Text style={styles.userMenuName}>{displayName}</Text>
-              <Text style={styles.userMenuEmail}>{displayEmail}</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => setIsUserMenuOpen(false)}
-            >
-              <X size={20} color="#9ca3af" />
-            </TouchableOpacity>
-          </View>
 
-          {/* Menu Items */}
-          <View style={styles.userMenuItems}>
-            <TouchableOpacity style={styles.userMenuItem} onPress={handleProfile}>
-              <User size={20} color="#d1d5db" />
-              <Text style={styles.userMenuItemText}>Profile</Text>
-              <ChevronRight size={16} color="#6b7280" />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.userMenuItem} onPress={handleSettings}>
-              <Settings size={20} color="#d1d5db" />
-              <Text style={styles.userMenuItemText}>Settings</Text>
-              <ChevronRight size={16} color="#6b7280" />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.userMenuItem} onPress={handleNotificationsToggle}>
-              <View style={styles.menuItemLeft}>
-                <Bell size={20} color="#d1d5db" />
-                <Text style={styles.userMenuItemText}>Notifications</Text>
-              </View>
-              <View style={styles.menuItemRight}>
-                {unreadCount > 0 && (
-                  <View style={styles.notificationBadge}>
-                    <Text style={styles.notificationBadgeText}>{unreadCount}</Text>
-                  </View>
-                )}
-                <ChevronRight size={16} color="#6b7280" />
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.userMenuItem}>
-              <FileText size={20} color="#d1d5db" />
-              <Text style={styles.userMenuItemText}>Files</Text>
-              <ChevronRight size={16} color="#6b7280" />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.userMenuItem} onPress={onToggleTheme}>
-              <View style={styles.menuItemLeft}>
-                {isDarkTheme ? (
-                  <Sun size={20} color="#d1d5db" />
-                ) : (
-                  <Moon size={20} color="#d1d5db" />
-                )}
-                <Text style={styles.userMenuItemText}>
-                  {isDarkTheme ? 'Light Mode' : 'Dark Mode'}
-                </Text>
-              </View>
-              <ChevronRight size={16} color="#6b7280" />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.userMenuItem}>
-              <Shield size={20} color="#d1d5db" />
-              <Text style={styles.userMenuItemText}>Admin Dashboard</Text>
-              <ChevronRight size={16} color="#6b7280" />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.userMenuItem}>
-              <HelpCircle size={20} color="#d1d5db" />
-              <Text style={styles.userMenuItemText}>Help & Support</Text>
-              <ChevronRight size={16} color="#6b7280" />
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={[styles.userMenuItem, styles.userMenuItemDestructive]} 
-              onPress={handleLogout}
-            >
-              <LogOut size={20} color="#ef4444" />
-              <Text style={[styles.userMenuItemText, styles.userMenuItemDestructiveText]}>
-                Sign Out
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  ), [
-    isUserMenuOpen,
-    displayName,
-    displayEmail,
-    renderUserAvatar,
-    handleProfile,
-    handleSettings,
-    handleNotificationsToggle,
-    unreadCount,
-    onToggleTheme,
-    isDarkTheme,
-    handleLogout,
-  ]);
 
   if (!user) {
     return (
@@ -344,7 +198,7 @@ export function NavChatUser({
       {isCollapsed ? (
         <TouchableOpacity
           style={styles.collapsedUserButton}
-          onPress={() => setIsUserMenuOpen(true)}
+          onPress={handleUserClick}
         >
           {renderUserAvatar()}
           {unreadCount > 0 && (
@@ -360,7 +214,7 @@ export function NavChatUser({
         <View style={styles.userProfile}>
           <TouchableOpacity
             style={styles.userProfileButton}
-            onPress={() => setIsUserMenuOpen(true)}
+            onPress={handleUserClick}
           >
             <View style={styles.userProfileContent}>
               <View style={styles.userAvatarContainer}>
@@ -382,42 +236,20 @@ export function NavChatUser({
             </View>
           </TouchableOpacity>
 
-          {/* Quick action buttons */}
-          <View style={styles.quickActions}>
-            <TouchableOpacity
-              style={styles.quickActionButton}
-              onPress={handleNotificationsToggle}
-            >
-              <Bell size={18} color="#9ca3af" />
-              {unreadCount > 0 && (
-                <View style={styles.quickActionBadge}>
-                  <Text style={styles.quickActionBadgeText}>
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.quickActionButton}
-              onPress={handleSettings}
-            >
-              <Settings size={18} color="#9ca3af" />
-            </TouchableOpacity>
-          </View>
         </View>
       )}
 
       {/* Modals */}
-      {renderUserMenuModal()}
       {renderNotificationsModal()}
 
-      {/* Settings Sheet */}
-      <SettingsSheet
+      {/* Unified Settings Sheet */}
+      <UnifiedSettingsSheet
         isOpen={isSettingsSheetOpen}
         onClose={() => setIsSettingsSheetOpen(false)}
-        defaultTab="profile"
+        defaultTab={selectedSettingsTab}
         user={user}
+        onLogout={onLogout}
       />
     </View>
   );
@@ -517,36 +349,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '500',
   },
-  quickActions: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  quickActionButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 6,
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  quickActionBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    backgroundColor: '#ef4444',
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  quickActionBadgeText: {
-    color: '#ffffff',
-    fontSize: 10,
-    fontWeight: '600',
-  },
+
   // Sign in prompt styles
   signInPrompt: {
     alignItems: 'center',
@@ -582,90 +385,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
   },
-  // User menu modal
-  userMenuModal: {
-    backgroundColor: '#374151',
-    borderRadius: 12,
-    width: '100%',
-    maxWidth: 320,
-    maxHeight: '80%',
-  },
-  userMenuHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#4b5563',
-    gap: 12,
-  },
-  userMenuAvatar: {
-    width: 48,
-    height: 48,
-  },
-  userMenuInfo: {
-    flex: 1,
-  },
-  userMenuName: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  userMenuEmail: {
-    color: '#9ca3af',
-    fontSize: 14,
-  },
   modalCloseButton: {
     padding: 4,
-  },
-  userMenuItems: {
-    paddingVertical: 8,
-  },
-  userMenuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-  },
-  userMenuItemDestructive: {
-    borderTopWidth: 1,
-    borderTopColor: '#4b5563',
-  },
-  menuItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-  },
-  menuItemRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  userMenuItemText: {
-    color: '#d1d5db',
-    fontSize: 14,
-    fontWeight: '400',
-    flex: 1,
-  },
-  userMenuItemDestructiveText: {
-    color: '#ef4444',
-  },
-  notificationBadge: {
-    backgroundColor: '#ef4444',
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  notificationBadgeText: {
-    color: '#ffffff',
-    fontSize: 10,
-    fontWeight: '600',
   },
   // Notifications modal
   notificationsModal: {

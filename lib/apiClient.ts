@@ -111,12 +111,12 @@ export class ApiClient {
         let accumulatedContent = '';
         let processedChunks = 0;
         
-        console.log('🔍 [API] Processing response lines:', lines.length);
+
         
         for (const line of lines) {
           if (line.trim() === '') continue;
           
-          console.log('📝 [API] Processing line:', line.substring(0, 100));
+
           
           if (line.startsWith('data: ')) {
             const data = line.slice(6);
@@ -129,14 +129,6 @@ export class ApiClient {
 
             try {
               const parsed = JSON.parse(data);
-              console.log('✅ [API] Parsed chunk:', {
-                type: parsed.type,
-                sessionId: parsed.sessionId,
-                hasChunk: !!parsed.chunk,
-                hasChoices: !!parsed.chunk?.choices?.length,
-                hasContent: !!parsed.chunk?.choices?.[0]?.delta?.content,
-                rawStructure: Object.keys(parsed)
-              });
               
               // Handle different message types from backend
               if (parsed.type === 'connection') {
@@ -151,22 +143,35 @@ export class ApiClient {
               }
               
               if (parsed.type === 'chunk' && parsed.chunk) {
-                // Extract content from the wrapped chunk
-                const content = parsed.chunk?.choices?.[0]?.delta?.content || '';
+                // Extract all delta data (content, tool calls, etc.)
+                const delta = parsed.chunk?.choices?.[0]?.delta;
+                const content = delta?.content || '';
+                const toolCalls = delta?.tool_calls;
+                const finishReason = parsed.chunk?.choices?.[0]?.finish_reason;
                 
+                // Only accumulate actual text content
                 if (content) {
                   accumulatedContent += content;
+                }
+                
+
+
+                // Pass the chunk if it has ANY delta data (content, tool calls, finish reason, etc.)
+                if (delta && (content || toolCalls || finishReason)) {
                   processedChunks++;
-                  console.log(`📤 [API] Chunk ${processedChunks}: "${content.substring(0, 30)}..."`);
-                  onChunk(content);
+                  
+                  // Pass the complete chunk structure to preserve all data
+                  const chunkString = JSON.stringify(parsed.chunk);
+                  onChunk(chunkString);
                   
                   // Add small delay to simulate streaming
                   await new Promise(resolve => setTimeout(resolve, 50));
                 } else {
-                  console.log('⚠️ [API] Chunk has no content:', {
+                  console.log('⚠️ [API] Chunk has no processable delta data:', {
                     hasChoices: !!parsed.chunk?.choices?.length,
-                    deltaKeys: parsed.chunk?.choices?.[0]?.delta ? Object.keys(parsed.chunk.choices[0].delta) : 'no delta',
-                    finishReason: parsed.chunk?.choices?.[0]?.finish_reason
+                    hasDelta: !!delta,
+                    deltaKeys: delta ? Object.keys(delta) : 'no delta',
+                    finishReason
                   });
                 }
               } else {
@@ -239,18 +244,52 @@ export class ApiClient {
                 }
                 
                 if (parsed.type === 'chunk' && parsed.chunk) {
-                  const content = parsed.chunk?.choices?.[0]?.delta?.content || '';
+                  // Pass the entire chunk data to preserve tool calls, content, and other delta information
+                  const delta = parsed.chunk.choices?.[0]?.delta;
+                  const content = delta?.content || '';
+                  const toolCalls = delta?.tool_calls;
+                  const finishReason = parsed.chunk.choices?.[0]?.finish_reason;
                   
+                  // Only accumulate actual text content
                   if (content) {
                     accumulatedContent += content;
-                    onChunk(content);
+                  }
+                  
+                  // Always pass the chunk if it has ANY delta data (content, tool calls, finish reason, etc.)
+                  if (delta && (content || toolCalls || finishReason)) {
+
+                    
+                    // Pass the complete chunk structure to preserve all data
+                    const nativeChunkString = JSON.stringify(parsed.chunk);
+
+                    onChunk(nativeChunkString);
+                  } else {
+                    console.log('⚠️ [API] Native chunk has no processable delta data:', {
+                      hasChoices: !!parsed.chunk?.choices?.length,
+                      hasDelta: !!delta,
+                      deltaKeys: delta ? Object.keys(delta) : 'no delta',
+                      finishReason
+                    });
                   }
                 } else {
                   // Fallback: try direct OpenAI format for compatibility
                   const content = parsed.choices?.[0]?.delta?.content || '';
+                  const toolCalls = parsed.choices?.[0]?.delta?.tool_calls;
+                  const finishReason = parsed.choices?.[0]?.finish_reason;
+                  
                   if (content) {
                     accumulatedContent += content;
-                    onChunk(content);
+                  }
+                  
+                  if (content || toolCalls || finishReason) {
+                    const fallbackChunkString = JSON.stringify(parsed);
+                    console.log(`🚀 [ApiClient] *** CALLING onChunk CALLBACK (FALLBACK) ***:`, {
+                      chunkStringLength: fallbackChunkString.length,
+                      callbackType: typeof onChunk,
+                      chunkPreview: fallbackChunkString.substring(0, 200),
+                      timestamp: Date.now()
+                    });
+                    onChunk(fallbackChunkString);
                   }
                 }
               } catch (parseError) {
