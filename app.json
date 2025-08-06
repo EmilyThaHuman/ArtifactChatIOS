@@ -18,7 +18,17 @@
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to let you select images to share in conversations.",
         "NSCameraUsageDescription": "This app needs access to your camera to let you take photos to share in conversations.",
         "NSMicrophoneUsageDescription": "This app needs access to your microphone to record videos with audio.",
-        "NSPhotoLibraryAddUsageDescription": "This app needs permission to save photos to your photo library."
+        "NSPhotoLibraryAddUsageDescription": "This app needs permission to save photos to your photo library.",
+        "LSSupportsOpeningDocumentsInPlace": true,
+        "UIFileSharingEnabled": true,
+        "UTImportedTypeDeclarations": [
+          {
+            "UTTypeIdentifier": "public.item",
+            "UTTypeReferenceURL": "https://developer.apple.com/documentation/uniformtypeidentifiers/uttype",
+            "UTTypeDescription": "Any file type",
+            "UTTypeConformsTo": ["public.data"]
+          }
+        ]
       }
     },
     "android": {
@@ -30,7 +40,10 @@
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
       ],
       "intentFilters": [
         {
@@ -78,6 +91,10 @@
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to let you take photos to share in conversations.",
           "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone to record videos with audio."
         }
+      ],
+      [
+        "expo-document-picker",
+        {}
       ],
       [
         "@stripe/stripe-react-native",

@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { AuthManager } from './auth';
+import { ChatCompletionService } from './services/chatCompletionService';
 import { OpenAIService } from './openai';
 
 export interface Thread {
@@ -55,12 +56,54 @@ export class ThreadManager {
         }
 
         if (!workspaces || workspaces.length === 0) {
-          console.error('🧵 ThreadManager: No personal workspace found');
-          return null;
-        }
+          console.log('🧵 ThreadManager: No personal workspace found, creating one...');
+          
+          // Create a personal workspace
+          const { data: newWorkspace, error: createError } = await supabase
+            .from('workspaces')
+            .insert({
+              user_id: user.id,
+              owner_id: user.id,
+              name: 'Personal Workspace',
+              description: 'Your personal AI workspace',
+              is_personal: true,
+              is_home: true,
+              workspace_members: [user.id],
+              workspace_files: [],
+              settings: {
+                private: true,
+                notifications: false,
+                allowMemberInvites: false
+              },
+              metadata: {
+                tags: [],
+                stats: {
+                  chat_count: 0,
+                  file_count: 0,
+                  member_count: 1
+                },
+                starred: false,
+                version: '1.0.0',
+                archived: false,
+                created_by: user.id,
+                updated_by: user.id
+              },
+              allow_invites: false
+            })
+            .select('id, name, is_personal')
+            .single();
 
-        workspaceId = workspaces[0].id;
-        console.log('🧵 ThreadManager: Using personal workspace:', workspaces[0].name);
+          if (createError) {
+            console.error('🧵 ThreadManager: Error creating personal workspace:', createError);
+            return null;
+          }
+
+          workspaceId = newWorkspace.id;
+          console.log('✅ ThreadManager: Created personal workspace:', newWorkspace.name);
+        } else {
+          workspaceId = workspaces[0].id;
+          console.log('🧵 ThreadManager: Using existing personal workspace:', workspaces[0].name);
+        }
       }
 
       // Generate thread title
@@ -91,6 +134,49 @@ export class ThreadManager {
         title: threadData.title,
         workspace_id: threadData.workspace_id
       });
+
+      // Create vector store for the thread
+      try {
+        console.log('🗄️ [THREAD CREATION] Creating vector store for thread:', {
+          threadId: threadData.id,
+          workspaceId: threadData.workspace_id,
+          context: 'THREAD_VECTOR_STORE_CREATE'
+        });
+        
+        const chatService = new ChatCompletionService();
+        const vectorStoreId = await chatService.createVectorStore(`Thread-${threadData.id}`);
+        
+        if (vectorStoreId) {
+          console.log('✅ [THREAD CREATION] Vector store created successfully:', {
+            threadId: threadData.id,
+            vectorStoreId,
+            context: 'THREAD_VECTOR_STORE_CREATED'
+          });
+          
+          // Update thread with vector store ID
+          const { error: updateError } = await supabase
+            .from('threads')
+            .update({ vector_store_id: vectorStoreId })
+            .eq('id', threadData.id);
+
+          if (updateError) {
+            console.error('🧵 ThreadManager: Error updating thread with vector store ID:', updateError);
+          } else {
+            console.log('✅ [THREAD CREATION] Vector store attached to thread in database:', {
+              threadId: threadData.id,
+              vectorStoreId,
+              context: 'THREAD_VECTOR_STORE_DB_UPDATE'
+            });
+            // Add vector store ID to the returned thread data
+            (threadData as any).vector_store_id = vectorStoreId;
+          }
+        } else {
+          console.warn('⚠️ ThreadManager: Failed to create vector store for thread');
+        }
+      } catch (vectorError) {
+        console.error('❌ ThreadManager: Error creating vector store:', vectorError);
+        // Continue without vector store - thread is still usable
+      }
 
       return threadData as Thread;
 

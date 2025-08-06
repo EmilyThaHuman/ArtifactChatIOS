@@ -454,6 +454,11 @@ export class ApiClient {
     generateSummary: (data: any) => ApiClient.post('/api/ai/chat/summary', data),
 
     /**
+     * Ask AI about image content (vision endpoint)
+     */
+    ask: (data: any) => ApiClient.post('/api/ai/ask', data),
+
+    /**
      * Upload file
      */
     uploadFile: (data: any) => ApiClient.post('/api/ai/files/upload', data),

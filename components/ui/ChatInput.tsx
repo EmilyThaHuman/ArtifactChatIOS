@@ -270,6 +270,14 @@ export default function ChatInput({
   const handleSendMessage = async () => {
     if (!inputText.trim() || disabled || isLoading) return;
     
+    console.log('📤 [ChatInput] Sending message with context:', {
+      threadId,
+      workspaceId,
+      hasFiles: files.length > 0,
+      fileCount: files.length,
+      context: 'MESSAGE_SEND_START'
+    });
+    
     let messageContent = inputText.trim();
     const attachedFiles = files.filter(f => f.status === 'completed');
     
@@ -463,8 +471,46 @@ export default function ChatInput({
       title: 'Add files',
       icon: Folder,
       onPress: async () => {
+        console.log('📁 [ChatInput] Add files button pressed');
         hideBottomSheet();
-        await pickDocument();
+        
+        // Show action sheet to let user choose between documents and photos
+        Alert.alert(
+          'Add Files',
+          'What would you like to add?',
+          [
+            {
+              text: 'Documents',
+              onPress: async () => {
+                try {
+                  console.log('📁 [ChatInput] Calling pickDocument...');
+                  await pickDocument();
+                  console.log('📁 [ChatInput] pickDocument completed successfully');
+                } catch (error) {
+                  console.error('📁 [ChatInput] Error in pickDocument:', error);
+                  Alert.alert('File Picker Error', 'Failed to open file picker. Please try again.');
+                }
+              }
+            },
+            {
+              text: 'Photos',
+              onPress: async () => {
+                try {
+                  console.log('📸 [ChatInput] Calling pickImage...');
+                  await pickImage();
+                  console.log('📸 [ChatInput] pickImage completed successfully');
+                } catch (error) {
+                  console.error('📸 [ChatInput] Error in pickImage:', error);
+                  Alert.alert('Photo Picker Error', 'Failed to open photo picker. Please try again.');
+                }
+              }
+            },
+            {
+              text: 'Cancel',
+              style: 'cancel'
+            }
+          ]
+        );
       }
     },
   ];

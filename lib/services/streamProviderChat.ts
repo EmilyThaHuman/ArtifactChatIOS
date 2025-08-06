@@ -5,6 +5,7 @@ import { webSearchService } from './webSearchService';
 import { editImage } from './imageEditingService';
 import { imageGenerationService } from './imageGenerationService';
 import { buildStructuredSystemPrompt } from './systemPromptBuilder';
+import { vectorStoreUtils } from './vectorStoreUtils';
 import {
   processStreamDelta,
   initializeReasoningState,
@@ -196,6 +197,10 @@ export class StreamProviderChat {
       });
     }
 
+    // Initialize variables for vector store processing
+    let retrievedFileIds: string[] = [];
+    let updatedContextData = params.contextData || {};
+
     // Initialize streaming state
     const state: StreamingState = {
       messageId,
@@ -216,7 +221,8 @@ export class StreamProviderChat {
         tokenCount: 0,
         originalMessages: params.messages, // Store original messages for follow-up stream
         instructions: params.instructions,
-        contextData: params.contextData,
+        contextData: updatedContextData,
+        retrievedFileIds: retrievedFileIds,
         temperature: params.temperature,
         maxTokens: params.max_tokens,
         reasoning: {
@@ -243,6 +249,35 @@ export class StreamProviderChat {
         } else {
           formattedMessages.unshift({ role: 'system', content: systemPrompt });
         }
+      }
+
+      // Process vector store retrieval using refactored utilities
+      console.log('🔍 [StreamProviderChat] Starting vector store retrieval processing');
+      
+      try {
+        const vectorStoreResult = await vectorStoreUtils.processVectorStoreRetrieval({
+          contextData: params.contextData || {},
+          threadId: state.threadId || 'unknown',
+          messages: formattedMessages,
+        });
+
+        // Update variables with results from vector store processing
+        formattedMessages = vectorStoreResult.enhancedMessages;
+        retrievedFileIds = vectorStoreResult.retrievedFileIds;
+        updatedContextData = vectorStoreResult.contextData;
+
+        // Update state metadata with new context data and retrieved file IDs
+        state.metadata.contextData = updatedContextData;
+        state.metadata.retrievedFileIds = retrievedFileIds;
+
+        console.log('✅ [StreamProviderChat] Vector store retrieval completed', {
+          retrievedFileCount: retrievedFileIds.length,
+          enhancedMessageCount: formattedMessages.length,
+          retrievalPerformed: updatedContextData.retrieval_performed
+        });
+      } catch (error) {
+        console.error('❌ [StreamProviderChat] Vector store retrieval failed:', error);
+        // Continue with original messages if retrieval fails
       }
 
       // Get provider for the model
@@ -279,9 +314,9 @@ export class StreamProviderChat {
         streamParams.response_format = params.response_format;
       }
 
-      // Add contextData to match web app format
-      if (params.contextData) {
-        streamParams.contextData = params.contextData;
+      // Add contextData to match web app format (use updated context with retrieval results)
+      if (updatedContextData) {
+        streamParams.contextData = updatedContextData;
       }
 
       // Add instructions to match web app format
@@ -335,24 +370,24 @@ export class StreamProviderChat {
             hasDetectedToolCall: state.hasDetectedToolCall,
             toolCallsFullyAccumulated: state.toolCallsFullyAccumulated,
             toolChoice: params.tool_choice,
-            contextData: params.contextData
+            contextData: state.metadata.contextData
           });
 
-          console.log(`🔍 [StreamProviderChat] Delta processing result:`, {
-            hasDeltaContent: !!deltaResult.deltaContent,
-            deltaContentLength: deltaResult.deltaContent?.length || 0,
-            hasReasoningContent: !!deltaResult.reasoningDeltaContent,
-            reasoningContentLength: deltaResult.reasoningDeltaContent?.length || 0,
-            hasToolCalls: deltaResult.hasDetectedToolCall,
-            toolCallsCount: deltaResult.pendingToolCalls.length,
-            streamCompleted: deltaResult.streamCompleted,
-            toolCallsFullyAccumulated: deltaResult.toolCallsFullyAccumulated,
-            bufferingForToolCall: deltaResult.bufferingForToolCall,
-            finishReason: parsedChunk.choices?.[0]?.finish_reason,
-            toolCallIds: deltaResult.pendingToolCalls.map(tc => tc.id),
-            toolCallNames: deltaResult.pendingToolCalls.map(tc => tc.function?.name),
-            toolCallArgsLengths: deltaResult.pendingToolCalls.map(tc => tc.function?.arguments?.length || 0)
-          });
+          // console.log(`🔍 [StreamProviderChat] Delta processing result:`, {
+          //   hasDeltaContent: !!deltaResult.deltaContent,
+          //   deltaContentLength: deltaResult.deltaContent?.length || 0,
+          //   hasReasoningContent: !!deltaResult.reasoningDeltaContent,
+          //   reasoningContentLength: deltaResult.reasoningDeltaContent?.length || 0,
+          //   hasToolCalls: deltaResult.hasDetectedToolCall,
+          //   toolCallsCount: deltaResult.pendingToolCalls.length,
+          //   streamCompleted: deltaResult.streamCompleted,
+          //   toolCallsFullyAccumulated: deltaResult.toolCallsFullyAccumulated,
+          //   bufferingForToolCall: deltaResult.bufferingForToolCall,
+          //   finishReason: parsedChunk.choices?.[0]?.finish_reason,
+          //   toolCallIds: deltaResult.pendingToolCalls.map(tc => tc.id),
+          //   toolCallNames: deltaResult.pendingToolCalls.map(tc => tc.function?.name),
+          //   toolCallArgsLengths: deltaResult.pendingToolCalls.map(tc => tc.function?.arguments?.length || 0)
+          // });
 
           // Update state from processing result
           state.reasoningState = deltaResult.reasoningState;
@@ -373,12 +408,12 @@ export class StreamProviderChat {
             state.content += deltaResult.deltaContent;
             state.metadata.tokenCount = (state.metadata.tokenCount || 0) + 1;
 
-            console.log(`📝 [StreamProviderChat] Content update:`, {
-              deltaLength: deltaResult.deltaContent.length,
-              beforeLength,
-              afterLength: state.content.length,
-              preview: deltaResult.deltaContent.substring(0, 30)
-            });
+            // console.log(`📝 [StreamProviderChat] Content update:`, {
+            //   deltaLength: deltaResult.deltaContent.length,
+            //   beforeLength,
+            //   afterLength: state.content.length,
+            //   preview: deltaResult.deltaContent.substring(0, 30)
+            // });
 
             callbacks.onUpdate?.(state.content, state);
           } else {
@@ -1251,6 +1286,29 @@ export class StreamProviderChat {
         }
       }
 
+      // Process vector store retrieval for non-streaming completion as well
+      console.log('🔍 [StreamProviderChat] Processing vector store retrieval for non-streaming completion');
+      let retrievedFileIds: string[] = [];
+      let updatedContextData = params.contextData || {};
+      
+      try {
+        const vectorStoreResult = await vectorStoreUtils.processVectorStoreRetrieval({
+          contextData: params.contextData || {},
+          threadId: 'completion',
+          messages: formattedMessages,
+        });
+
+        formattedMessages = vectorStoreResult.enhancedMessages;
+        retrievedFileIds = vectorStoreResult.retrievedFileIds;
+        updatedContextData = vectorStoreResult.contextData;
+
+        console.log('✅ [StreamProviderChat] Vector store retrieval completed for non-streaming', {
+          retrievedFileCount: retrievedFileIds.length
+        });
+      } catch (error) {
+        console.error('❌ [StreamProviderChat] Vector store retrieval failed for non-streaming:', error);
+      }
+
       // Prepare completion parameters
       const completionParams = {
         provider: params.provider,
@@ -1286,7 +1344,9 @@ export class StreamProviderChat {
           model: params.model,
           usage: result.usage,
           finishReason: result.choices[0].finish_reason,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          retrievedFileIds: retrievedFileIds,
+          contextData: updatedContextData
         }
       };
 

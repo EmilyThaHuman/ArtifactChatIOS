@@ -629,7 +629,16 @@ export class ChatCompletionService {
       };
 
       const response = await ApiClient.ai.vectorStore.search(vectorStoreId, requestBody);
-      return response.results;
+      
+      // Handle the API response structure correctly
+      if (response?.results?.data && Array.isArray(response.results.data)) {
+        return response.results.data;
+      } else if (response?.results && Array.isArray(response.results)) {
+        return response.results;
+      } else {
+        console.log('No results found in vector store search response');
+        return [];
+      }
     } catch (error) {
       console.error('Error searching vector store:', error);
       throw error;
@@ -930,18 +939,218 @@ You operate within a hierarchical system where your expertise may be applied to 
   /**
    * Format retrieval results for context
    */
-  formatRetrievalResults(results: RetrievalResult[]): string {
+  formatRetrievalResults(results: any[]): string {
     if (results.length === 0) return '';
+
+    console.log('📝 [ChatCompletionService] formatRetrievalResults called with:', {
+      resultsCount: results.length,
+      sampleResult: results[0]
+    });
 
     let formatted = '<files>\n';
     for (const result of results) {
-      formatted += `<file_snippet file_id='${result.fileId}' file_name='${result.filename}'>`;
-      formatted += `<content>${result.content}</content>`;
+      // Handle both old and new API response formats
+      const fileId = result.fileId || result.file_id || 'undefined';
+      const filename = result.filename || result.file_name || 'unknown_file';
+      
+      // Extract content from the API response format
+      let content = '';
+      if (typeof result.content === 'string') {
+        content = result.content;
+      } else if (Array.isArray(result.content)) {
+        // Handle new API format: content is array of objects with text
+        content = result.content
+          .filter(item => item && item.type === 'text')
+          .map(item => item.text)
+          .join('\n');
+      } else if (result.content && typeof result.content === 'object') {
+        // Handle object content - stringify it
+        content = JSON.stringify(result.content);
+      }
+      
+      console.log('📝 [ChatCompletionService] Processing result:', {
+        fileId,
+        filename,
+        contentType: typeof result.content,
+        contentLength: content.length
+      });
+
+      formatted += `<file_snippet file_id='${fileId}' file_name='${filename}'>`;
+      formatted += `<content>${content}</content>`;
       formatted += '</file_snippet>\n';
     }
     formatted += '</files>';
 
     return formatted;
+  }
+
+  /**
+   * Process retrieval for a workspace or project
+   * This method wraps the vectorStoreUtils functionality for backward compatibility
+   */
+  async processRetrieval(
+    vectorStoreId: string,
+    query: string,
+    maxResults: number = 10
+  ): Promise<{
+    results: RetrievalResult[];
+    formattedResults: string;
+    fileIds: string[];
+  }> {
+    console.log('🔍 [ChatCompletionService] Processing retrieval', {
+      vectorStoreId,
+      queryLength: query.length,
+      maxResults
+    });
+
+    try {
+      // Search the vector store
+      const results = await this.searchVectorStore(vectorStoreId, query, maxResults);
+      
+      // Format the results
+      const formattedResults = this.formatRetrievalResults(results);
+      
+      // Extract file IDs
+      const fileIds = results.map(r => r.fileId);
+
+      console.log('✅ [ChatCompletionService] Retrieval completed', {
+        resultsCount: results.length,
+        fileIdsCount: fileIds.length
+      });
+
+      return {
+        results,
+        formattedResults,
+        fileIds
+      };
+    } catch (error) {
+      console.error('❌ [ChatCompletionService] Retrieval failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Enhance messages with retrieval results
+   * Appends retrieval results to the last user message
+   */
+  enhanceMessagesWithRetrieval(
+    messages: ChatMessage[],
+    formattedResults: string
+  ): ChatMessage[] {
+    if (!formattedResults || messages.length === 0) {
+      return messages;
+    }
+
+    const enhancedMessages = [...messages];
+    const lastMessageIndex = messages.length - 1;
+    const lastMessage = messages[lastMessageIndex];
+
+    if (lastMessage.role === 'user') {
+      const originalContent = typeof lastMessage.content === 'string' 
+        ? lastMessage.content 
+        : JSON.stringify(lastMessage.content);
+
+      enhancedMessages[lastMessageIndex] = {
+        ...lastMessage,
+        content: originalContent + '\n\n' + formattedResults
+      };
+
+      console.log('📝 [ChatCompletionService] Enhanced last user message with retrieval results', {
+        originalLength: originalContent.length,
+        enhancedLength: enhancedMessages[lastMessageIndex].content.length
+      });
+    }
+
+    return enhancedMessages;
+  }
+
+  /**
+   * Ask AI about images using vision capabilities
+   * This mimics the web app's ask endpoint for image processing
+   */
+  async askAboutImages(
+    query: string,
+    imageUrls: string[],
+    options: {
+      model?: string;
+      maxTokens?: number;
+      temperature?: number;
+    } = {}
+  ): Promise<{
+    content: string;
+    usage?: any;
+    metadata: any;
+  }> {
+    console.log('👁️ [ChatCompletionService] Processing vision request', {
+      query: query.substring(0, 100),
+      imageCount: imageUrls.length,
+      model: options.model || 'gpt-4o'
+    });
+
+    try {
+      const requestData = {
+        query,
+        image_urls: imageUrls,
+        model: options.model || 'gpt-4o',
+        max_tokens: options.maxTokens || 2000,
+        temperature: options.temperature || 0.7,
+      };
+
+      const response = await ApiClient.ai.ask(requestData);
+
+      // Track token usage if available
+      if (response.usage) {
+        await this.trackTokenUsage(
+          response.usage,
+          options.model || 'gpt-4o',
+          'vision_ask'
+        );
+      }
+
+      console.log('✅ [ChatCompletionService] Vision request completed', {
+        contentLength: response.content?.length || 0,
+        hasUsage: !!response.usage
+      });
+
+      return {
+        content: response.content || '',
+        usage: response.usage,
+        metadata: {
+          model: options.model || 'gpt-4o',
+          imageCount: imageUrls.length,
+          timestamp: new Date().toISOString(),
+          isVisionResponse: true
+        }
+      };
+
+    } catch (error) {
+      console.error('❌ [ChatCompletionService] Vision request failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Format vision results for inclusion in chat
+   * This matches the web app's vision result formatting
+   */
+  formatVisionResults(
+    query: string,
+    visionResponse: string,
+    imageUrls: string[]
+  ): string {
+    const imageList = imageUrls.map((url, index) => 
+      `[Image ${index + 1}]: ${url}`
+    ).join('\n');
+
+    return `\n\n<vision_analysis>
+<query>${query}</query>
+<images>
+${imageList}
+</images>
+<analysis>
+${visionResponse}
+</analysis>
+</vision_analysis>`;
   }
 }
 

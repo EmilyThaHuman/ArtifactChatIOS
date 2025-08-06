@@ -13,7 +13,7 @@ import {
 import { ChatCompletionService } from '@/lib/services/chatCompletionService';
 import { webSearchService } from '@/lib/services/webSearchService';
 import { buildStructuredSystemPrompt } from '@/lib/services/systemPromptBuilder';
-import { searchVectorStore, formatRetrievalResults, getThreadVectorStore } from '@/lib/content';
+import { searchVectorStore, formatRetrievalResults, getThreadVectorStore, getWorkspaceVectorStore } from '@/lib/content';
 import { VectorStoreFile } from '@/lib/content';
 
 export interface Message {
@@ -181,6 +181,70 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         name: msg.metadata?.name,
         reasoningContent: msg.metadata?.reasoningContent,
         reasoningMetadata: msg.metadata?.reasoningMetadata,
+        // Restore file attachments from database (web app compatible format)
+        files: (() => {
+          // New format with mobile_files array
+          if (msg.attachments?.mobile_files && Array.isArray(msg.attachments.mobile_files)) {
+            return msg.attachments.mobile_files.map((attachment: any) => ({
+              id: attachment.id,
+              name: attachment.name,
+              type: attachment.type,
+              size: attachment.size,
+              publicUrl: attachment.publicUrl,
+              uri: attachment.uri || attachment.publicUrl,
+              isImage: attachment.isImage,
+              status: attachment.status || 'completed',
+              metadata: attachment.metadata
+            }));
+          }
+          
+          // Legacy format - old mobile app direct attachments array
+          if (msg.attachments && Array.isArray(msg.attachments)) {
+            return msg.attachments.map((attachment: any) => ({
+              id: attachment.id,
+              name: attachment.name,
+              type: attachment.type,
+              size: attachment.size,
+              publicUrl: attachment.publicUrl,
+              uri: attachment.uri || attachment.publicUrl,
+              isImage: attachment.isImage,
+              status: attachment.status || 'completed',
+              metadata: attachment.metadata
+            }));
+          }
+          
+          // Web app format - only file_ids and names, create placeholder objects
+          if (msg.attachments?.file_ids && Array.isArray(msg.attachments.file_ids) && msg.attachments.file_ids.length > 0) {
+            return msg.attachments.file_ids.map((fileId: string, index: number) => ({
+              id: fileId,
+              name: msg.attachments.current_file_names?.[index] || `File ${index + 1}`,
+              type: 'application/octet-stream',
+              size: 0,
+              publicUrl: null,
+              uri: null,
+              isImage: false,
+              status: 'web_reference',
+              metadata: { fromWeb: true }
+            }));
+          }
+          
+          // Final fallback for legacy messages with file_ids but no attachments
+          if (msg.file_ids && Array.isArray(msg.file_ids) && msg.file_ids.length > 0) {
+            return msg.file_ids.map((fileId: string, index: number) => ({
+              id: fileId,
+              name: `File ${index + 1}`,
+              type: 'application/octet-stream',
+              size: 0,
+              publicUrl: null,
+              uri: null,
+              isImage: false,
+              status: 'legacy_reference',
+              metadata: { fromLegacy: true }
+            }));
+          }
+          
+          return undefined;
+        })(),
       }));
 
       console.log(`🔄 [useChat] Loaded ${formattedMessages.length} messages for thread ${threadId}`);
@@ -211,10 +275,41 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         reasoningContent: message.reasoningContent,
         reasoningMetadata: message.reasoningMetadata,
         isStreaming: message.isStreaming,
+        // Web app style file references in metadata for compatibility
+        ...(message.files && message.files.length > 0 && {
+          file_ids: message.files.map(f => f.id),
+          has_files: true,
+          file_count: message.files.length,
+          current_file_names: message.files.map(f => f.name),
+          has_images: message.files.some(f => f.isImage),
+          image_count: message.files.filter(f => f.isImage).length,
+        })
       };
 
       // Remove toolCalls from metadata since it has its own column
       delete messageMetadata.toolCalls;
+
+      // Prepare file IDs and attachments data for persistence (web app compatible format)
+      const fileIds = message.files ? message.files.map(f => f.id) : [];
+      
+      // Store both web app compatible format AND mobile app data for backward compatibility
+      const attachments = message.files ? {
+        // Web app style - minimal file references  
+        file_ids: message.files.map(f => f.id),
+        current_file_names: message.files.map(f => f.name),
+        // Mobile app style - full file data for offline access
+        mobile_files: message.files.map(file => ({
+          id: file.id,
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          publicUrl: file.publicUrl,
+          uri: file.uri,
+          isImage: file.isImage,
+          status: file.status,
+          metadata: file.metadata
+        }))
+      } : null;
 
       const { error } = await supabase
         .from('thread_messages')
@@ -225,6 +320,8 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           role: message.role,
           content: message.content,
           tool_calls: message.toolCalls || null, // Store in dedicated column
+          file_ids: fileIds, // Store file IDs in dedicated column
+          attachments: attachments, // Store full file attachment data
           metadata: messageMetadata,
         });
 
@@ -234,7 +331,10 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       } else {
         console.log(`💾 [useChat] Message saved to database: ${message.id}`, {
           hasToolCalls: !!message.toolCalls?.length,
-          toolCallCount: message.toolCalls?.length || 0
+          toolCallCount: message.toolCalls?.length || 0,
+          hasFiles: !!message.files?.length,
+          fileCount: message.files?.length || 0,
+          fileNames: message.files?.map(f => f.name) || []
         });
       }
     } catch (error: any) {
@@ -401,6 +501,13 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       if (enableRetrieval && threadId) {
         vectorStoreId = await getThreadVectorStore(threadId);
         
+        console.log('🔍 [CONTEXT SETUP] Thread vector store retrieval:', {
+          threadId,
+          vectorStoreId,
+          enableRetrieval,
+          context: 'THREAD_VECTOR_STORE_FETCH'
+        });
+        
         if (vectorStoreId) {
           console.log('🔍 [useChat] Performing vector store search for context');
           const searchResults = await searchVectorStore(
@@ -423,10 +530,16 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       // Get workspace vector store if in workspace context
       if (workspaceId) {
         try {
-          // You might need to implement this function based on your workspace setup
-          // workspaceVectorStoreId = await getWorkspaceVectorStore(workspaceId);
+          // Get the vector store ID for this workspace
+          workspaceVectorStoreId = await getWorkspaceVectorStore(workspaceId);
+          
+          console.log('🔍 [CONTEXT SETUP] Workspace vector store retrieval:', {
+            workspaceId,
+            workspaceVectorStoreId,
+            context: 'WORKSPACE_VECTOR_STORE_FETCH'
+          });
         } catch (error) {
-          console.log('No workspace vector store found');
+          console.log('No workspace vector store found:', error);
         }
       }
 
@@ -493,14 +606,46 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         has_images: !!(files && files.some(f => f.isImage)),
         image_count: files ? files.filter(f => f.isImage).length : 0,
         vision_image_urls: files ? files.filter(f => f.isImage && f.publicUrl).map(f => f.publicUrl!) : [],
+        // Add storage_files for web app compatibility
+        storage_files: files ? files.map(f => ({
+          id: f.id,
+          name: f.name,
+          type: f.type,
+          size: f.size,
+          isImage: f.isImage,
+          publicUrl: f.publicUrl,
+          url: f.publicUrl,
+          visionMetadata: f.isImage ? {
+            publicUrl: f.publicUrl,
+            contentType: f.type,
+            isReady: true
+          } : undefined
+        })) : [],
         enable_retrieval: enableRetrieval,
         modelProvider: actualProvider,
         actualProviderName: actualProvider,
         vector_store_id: vectorStoreId, // Will be set if we have retrieval context
+        thread_vector_store_id: vectorStoreId, // Thread vector store ID for retrieval
         workspace_vector_store_id: workspaceVectorStoreId, // Will be set if workspace has vector store
         file_ids: files ? files.map(f => f.id) : [],
         current_file_names: files ? files.map(f => f.name) : [],
       };
+
+      console.log('🔍 [CONTEXT SETUP] Final context data for AI:', {
+        threadId,
+        workspaceId,
+        vectorStoreId,
+        workspaceVectorStoreId,
+        enableRetrieval,
+        isWorkspaceChat: contextData.is_workspace_chat,
+        hasFiles: contextData.has_files,
+        fileCount: contextData.file_count,
+        hasImages: contextData.has_images,
+        imageCount: contextData.image_count,
+        visionImageUrls: contextData.vision_image_urls,
+        storageFilesCount: contextData.storage_files.length,
+        context: 'FINAL_CONTEXT_DATA'
+      });
 
       // Prepare available tools for the AI (not forced tool choice)
       const availableTools = [

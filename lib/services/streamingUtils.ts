@@ -616,9 +616,31 @@ export function formatRetrievalResults(searchResults: any[]): string {
   let formatted = '<files>\n';
   
   for (const result of searchResults) {
-    const content = result.content || result.text || '';
     const filename = result.filename || result.name || result.file_name || 'unknown';
     const fileId = result.file_id || result.id || 'unknown';
+    
+    // Extract content from different formats
+    let content = '';
+    if (typeof result.content === 'string') {
+      content = result.content;
+    } else if (Array.isArray(result.content)) {
+      // Handle new API format: content is array of objects with text
+      content = result.content
+        .filter(item => item && item.type === 'text')
+        .map(item => item.text)
+        .join('\n');
+    } else if (result.content && typeof result.content === 'object') {
+      content = JSON.stringify(result.content);
+    } else {
+      content = result.text || '';
+    }
+    
+    console.log('📝 [StreamingUtils] Processing result:', {
+      fileId,
+      filename,
+      contentType: typeof result.content,
+      contentLength: content.length
+    });
     
     formatted += `<file_snippet file_id='${fileId}' file_name='${filename}'>`;
     formatted += `<content>${content}</content>`;

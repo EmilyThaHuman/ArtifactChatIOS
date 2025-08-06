@@ -228,13 +228,37 @@ export class OpenAIService {
     }
   }
 
-  static formatRetrievalResults(results: RetrievalResult[]): string {
+  static formatRetrievalResults(results: any[]): string {
     if (results.length === 0) return '';
+    
+    console.log('📝 [OpenAI] formatRetrievalResults called with:', {
+      resultsCount: results.length,
+      sampleResult: results[0]
+    });
     
     let formatted = '<files>\n';
     for (const result of results) {
-      formatted += `<file_snippet file_id='${result.fileId}' file_name='${result.filename}'>`;
-      formatted += `<content>${result.content}</content>`;
+      // Handle both old and new API response formats
+      const fileId = result.fileId || result.file_id || 'undefined';
+      const filename = result.filename || result.file_name || 'unknown_file';
+      
+      // Extract content from the API response format
+      let content = '';
+      if (typeof result.content === 'string') {
+        content = result.content;
+      } else if (Array.isArray(result.content)) {
+        // Handle new API format: content is array of objects with text
+        content = result.content
+          .filter(item => item && item.type === 'text')
+          .map(item => item.text)
+          .join('\n');
+      } else if (result.content && typeof result.content === 'object') {
+        // Handle object content - stringify it
+        content = JSON.stringify(result.content);
+      }
+      
+      formatted += `<file_snippet file_id='${fileId}' file_name='${filename}'>`;
+      formatted += `<content>${content}</content>`;
       formatted += '</file_snippet>\n';
     }
     formatted += '</files>';

@@ -708,6 +708,13 @@ export default function ChatInterface({
               />
             </View>
 
+            {/* File attachments for assistant messages - positioned ABOVE content like web app */}
+            {hasFileAttachments && (
+              <View style={styles.messageFileAttachments}>
+                <FileAttachments files={message.files} messageId={message.id} />
+              </View>
+            )}
+
             {/* Message content wrapper - full width */}
             <View style={styles.assistantMessageContent}>
               {/* No background bubble for assistant messages - content renders directly */}
@@ -727,13 +734,6 @@ export default function ChatInterface({
                   currentToolCallName={currentToolCallName || undefined}
                   currentMessageId={currentMessageId || undefined}
                 />
-
-                {/* File attachments for assistant messages */}
-                {hasFileAttachments && (
-                  <View style={styles.messageFileAttachments}>
-                    <FileAttachments files={message.files} messageId={message.id} />
-                  </View>
-                )}
                 
                 {/* Generated images for assistant messages */}
                 {finalImageData && (
@@ -777,17 +777,17 @@ export default function ChatInterface({
         {/* User message container - bubble style */}
         {isUser && (
           <View style={styles.userMessageLayout}>
+            {/* File attachments for user messages - positioned ABOVE content like web app */}
+            {hasFileAttachments && (
+              <View style={[styles.messageFileAttachments, styles.userFileAttachments]}>
+                <FileAttachments files={message.files} messageId={message.id} />
+              </View>
+            )}
+
             <View style={styles.userMessageBubble}>
               <Text style={styles.userMessageText}>
                 {message.content}
               </Text>
-              
-              {/* File attachments for user messages */}
-              {hasFileAttachments && (
-                <View style={styles.messageFileAttachments}>
-                  <FileAttachments files={message.files} messageId={message.id} />
-                </View>
-              )}
             </View>
 
             {/* Action buttons for user messages */}
@@ -1232,6 +1232,9 @@ const styles = StyleSheet.create({
   },
   messageFileAttachments: {
     marginTop: 8,
+  },
+  userFileAttachments: {
+    marginBottom: 12, // Add more spacing between file attachments and user message
   },
   // New message styles matching web app
   userMessageContainer: {
