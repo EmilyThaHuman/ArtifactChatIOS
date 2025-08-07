@@ -212,6 +212,82 @@ function extractWebSearchData(message: Message, isUser: boolean): WebSearchToolD
       }
     }
 
+    // IMPORTANT: Also check tool_calls array for web search results
+    if (sources.length === 0 && (message.tool_calls || message.toolCalls)) {
+      const toolCalls = message.tool_calls || message.toolCalls;
+      const webSearchTool = Array.isArray(toolCalls) 
+        ? toolCalls.find((tc: any) => 
+            (tc.function?.name === 'web_search' || tc.name === 'web_search') && tc.result
+          )
+        : null;
+      
+      if (webSearchTool?.result) {
+        try {
+          const result = webSearchTool.result;
+          console.log('🔍 [extractWebSearchData] Debug tool result structure:', {
+            resultType: typeof result,
+            resultKeys: Object.keys(result),
+            hasSources: !!result.sources,
+            hasContent: !!result.content,
+            contentType: typeof result.content,
+            resultPreview: JSON.stringify(result).substring(0, 200) + '...'
+          });
+          
+          // First check if sources are directly on the result
+          if (result.sources && Array.isArray(result.sources)) {
+            sources = result.sources;
+            summary = result.summary || result.content || '';
+            console.log('✅ [extractWebSearchData] Found web search data directly in result:', {
+              sourcesCount: sources.length,
+              hasSummary: !!summary
+            });
+          } 
+          // Check if sources are in the content field as JSON string
+          else if (result.content && typeof result.content === 'string') {
+            try {
+              const parsedContent = JSON.parse(result.content);
+              console.log('🔍 [extractWebSearchData] Parsed content structure:', {
+                contentKeys: Object.keys(parsedContent),
+                hasSources: !!parsedContent.sources,
+                sourcesLength: Array.isArray(parsedContent.sources) ? parsedContent.sources.length : 'not array'
+              });
+              
+              if (parsedContent.sources && Array.isArray(parsedContent.sources)) {
+                sources = parsedContent.sources;
+                summary = parsedContent.summary || parsedContent.content || '';
+                console.log('✅ [extractWebSearchData] Found web search data in parsed content:', {
+                  sourcesCount: sources.length,
+                  hasSummary: !!summary
+                });
+              }
+            } catch (parseError) {
+              console.warn('Failed to parse tool result content as JSON:', parseError);
+            }
+          }
+          
+          if (sources.length === 0) {
+            console.warn('⚠️ [extractWebSearchData] No sources found in tool result:', {
+              resultKeys: Object.keys(result),
+              hasDirectSources: !!result.sources,
+              hasContent: !!result.content,
+              contentPreview: typeof result.content === 'string' ? result.content.substring(0, 100) + '...' : result.content
+            });
+          }
+        } catch (e) {
+          console.warn('Failed to parse web search tool result:', e);
+        }
+      } else {
+        console.log('🔍 [extractWebSearchData] No web search tool with result found:', {
+          toolCallsCount: Array.isArray(toolCalls) ? toolCalls.length : 0,
+          toolCallsPreview: Array.isArray(toolCalls) ? toolCalls.map(tc => ({
+            id: tc.id,
+            name: tc.function?.name || tc.name,
+            hasResult: !!tc.result
+          })) : 'not array'
+        });
+      }
+    }
+
     // Process the web search data
     if (webSearchData) {
       sources = webSearchData.sources || webSearchData.data || [];

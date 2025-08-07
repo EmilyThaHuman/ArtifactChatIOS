@@ -5,30 +5,75 @@ import {
   StyleSheet,
   Animated,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface SourcesAvatarsSkeletonProps {
   style?: any;
   maxCircles?: number;
 }
 
-// Helper function to get gradient colors matching web app
-const getGradientColors = (index: number): { backgroundColor: string } => {
+// Helper function to get gradient colors matching web app exactly
+const getGradientColors = (index: number): string[] => {
   const gradients = [
-    '#f97316', // orange-500
-    '#3b82f6', // blue-500  
-    '#a855f7', // purple-500
-    '#10b981', // emerald-500
-    '#f59e0b', // amber-500
-    '#ef4444', // red-500
-    '#06b6d4', // cyan-500
-    '#84cc16', // lime-500
+    ['#f472b6', '#f87171', '#fbbf24'], // pink-400 via red-400 to yellow-300
+    ['#60a5fa', '#06b6d4', '#4ade80'], // blue-400 via cyan-400 to green-300
+    ['#a78bfa', '#e879f9', '#f9a8d4'], // purple-400 via fuchsia-400 to pink-300
+    ['#fb923c', '#facc15', '#a3e635'], // orange-400 via yellow-400 to lime-300
+    ['#818cf8', '#60a5fa', '#0ea5e9'], // indigo-400 via blue-400 to sky-300
+    ['#2dd4bf', '#34d399', '#4ade80'], // teal-400 via emerald-400 to green-300
+    ['#fb7185', '#f472b6', '#e879f9'], // rose-400 via pink-400 to fuchsia-300
+    ['#c084fc', '#a78bfa', '#818cf8'], // violet-400 via purple-400 to indigo-300
   ];
   
   // Use deterministic color selection like web app
-  return {
-    backgroundColor: gradients[(index * 3 + 7) % gradients.length],
-  };
+  return gradients[(index * 3 + 7) % gradients.length];
 };
+
+// AnimatedShinyText component matching web app
+const AnimatedShinyText = memo(function AnimatedShinyText({ 
+  children, 
+  style 
+}: { 
+  children: React.ReactNode;
+  style?: any;
+}) {
+  const shimmerValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const shimmerAnimation = Animated.loop(
+      Animated.timing(shimmerValue, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: false, // We need to animate opacity which doesn't support native driver
+      })
+    );
+
+    shimmerAnimation.start();
+
+    return () => {
+      shimmerAnimation.stop();
+    };
+  }, [shimmerValue]);
+
+  const shimmerOpacity = shimmerValue.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.4, 1, 0.4],
+  });
+
+  return (
+    <Animated.Text style={[
+      {
+        fontSize: 14,
+        color: '#9ca3af', // text-muted-foreground
+        fontWeight: '400',
+        opacity: shimmerOpacity,
+      },
+      style
+    ]}>
+      {children}
+    </Animated.Text>
+  );
+});
 
 const SourcesAvatarsSkeleton = memo(function SourcesAvatarsSkeleton({
   style,
@@ -36,7 +81,6 @@ const SourcesAvatarsSkeleton = memo(function SourcesAvatarsSkeleton({
 }: SourcesAvatarsSkeletonProps) {
   const [visibleCircles, setVisibleCircles] = useState(1);
   const animatedValue = useRef(new Animated.Value(0)).current;
-  const textShimmer = useRef(new Animated.Value(0)).current;
 
   // Progressive circle animation matching web app
   useEffect(() => {
@@ -66,32 +110,16 @@ const SourcesAvatarsSkeleton = memo(function SourcesAvatarsSkeleton({
       ])
     );
 
-    // Shimmer animation for text
-    const shimmerAnimation = Animated.loop(
-      Animated.timing(textShimmer, {
-        toValue: 1,
-        duration: 2000,
-        useNativeDriver: true,
-      })
-    );
-
     pulseAnimation.start();
-    shimmerAnimation.start();
 
     return () => {
       pulseAnimation.stop();
-      shimmerAnimation.stop();
     };
-  }, [animatedValue, textShimmer]);
+  }, [animatedValue]);
 
   const opacity = animatedValue.interpolate({
     inputRange: [0, 1],
     outputRange: [0.6, 1],
-  });
-
-  const textOpacity = textShimmer.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: [0.5, 1, 0.5],
   });
 
   // Generate circles based on visible count
@@ -99,19 +127,18 @@ const SourcesAvatarsSkeleton = memo(function SourcesAvatarsSkeleton({
 
   return (
     <View style={[styles.container, style]}>
-      <Animated.Text style={[styles.searchingText, { opacity: textOpacity }]}>
+      <AnimatedShinyText>
         Searching the web
-      </Animated.Text>
+      </AnimatedShinyText>
       <View style={styles.avatarsContainer}>
         {circles.map((index) => {
-          const gradientStyle = getGradientColors(index);
+          const gradientColors = getGradientColors(index);
           
           return (
             <Animated.View
               key={index}
               style={[
                 styles.avatar,
-                gradientStyle,
                 { 
                   opacity,
                   zIndex: visibleCircles - index,
@@ -119,14 +146,11 @@ const SourcesAvatarsSkeleton = memo(function SourcesAvatarsSkeleton({
                 index > 0 && styles.avatarOverlap,
               ]}
             >
-              <Animated.View 
-                style={[
-                  styles.skeletonContent,
-                  { opacity: animatedValue.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.5, 1],
-                  })}
-                ]} 
+              <LinearGradient
+                colors={gradientColors}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.gradientCircle}
               />
             </Animated.View>
           );
@@ -140,17 +164,14 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-start', // Align to start of line
     backgroundColor: 'transparent',
     paddingHorizontal: 8,
     paddingVertical: 8,
     borderRadius: 6,
     gap: 12,
     height: 32,
-  },
-  searchingText: {
-    fontSize: 14,
-    color: '#9ca3af', // text-muted-foreground
-    fontWeight: '400',
+    alignSelf: 'flex-start', // Ensure container aligns to start
   },
   avatarsContainer: {
     flexDirection: 'row',
@@ -163,22 +184,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 0,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
     overflow: 'hidden',
     position: 'relative',
   },
   avatarOverlap: {
-    marginLeft: -16, // More overlap like web app
+    marginLeft: -16, // Overlap like web app (-space-x-4)
   },
-  skeletonContent: {
+  gradientCircle: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
 });
 

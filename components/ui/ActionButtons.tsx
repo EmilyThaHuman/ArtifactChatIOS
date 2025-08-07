@@ -227,8 +227,30 @@ const ActionButtons = memo(({
   const effectiveHasToolData = 
     effectiveFirecrawlData || effectiveDalleData || effectiveCanvasData;
 
+  console.log('🔍 [ActionButtons] Tool data analysis:', {
+    isUser,
+    hasToolCalls,
+    shouldShowCurrentToolData,
+    firecrawlSearchData: !!firecrawlSearchData,
+    firecrawlSearchDataSources: firecrawlSearchData?.sources?.length || 0,
+    previousMessageFirecrawlData: !!previousMessageFirecrawlData,
+    effectiveFirecrawlData: !!effectiveFirecrawlData,
+    effectiveFirecrawlDataSources: effectiveFirecrawlData?.sources?.length || 0,
+    effectiveHasToolData,
+    messageId: message.id,
+  });
+
   const shouldShowAssistantButtons = 
     !message.isStreaming || hasCompletedToolCalls || (content && content.trim());
+
+  console.log('🔍 [ActionButtons] Button visibility analysis:', {
+    effectiveHasToolData,
+    shouldShowButtons,
+    shouldShowAssistantButtons,
+    messageId: message.id,
+  });
+
+
 
   if (isUser) {
     // User message buttons (right side)
@@ -282,6 +304,15 @@ const ActionButtons = memo(({
   } else {
     // Assistant message buttons (left side)
     const finalShouldShowButtons = effectiveHasToolData ? true : shouldShowButtons;
+    
+    console.log('🔍 [ActionButtons] Assistant render decision:', {
+      effectiveHasToolData,
+      shouldShowButtons,
+      finalShouldShowButtons,
+      shouldShowAssistantButtons,
+      willRender: shouldShowAssistantButtons && finalShouldShowButtons,
+      messageId: message.id,
+    });
 
     return (
       <Animated.View 
@@ -358,12 +389,26 @@ const ActionButtons = memo(({
         </TouchableOpacity>
 
         {/* Tool Data Buttons */}
-        {effectiveFirecrawlData && onSourcesClick && (
-          <SourcesAvatars
-            sources={effectiveFirecrawlData.sources || effectiveFirecrawlData}
-            onSourcesClick={() => onSourcesClick(effectiveFirecrawlData.sources || effectiveFirecrawlData)}
-            style={styles.toolDataButton}
-          />
+        {effectiveFirecrawlData && onSourcesClick ? (
+          <>
+            {console.log('🎯 [ActionButtons] Rendering SourcesAvatars:', {
+              hasEffectiveFirecrawlData: !!effectiveFirecrawlData,
+              sourcesCount: effectiveFirecrawlData?.sources?.length || 0,
+              hasOnSourcesClick: !!onSourcesClick,
+              messageId: message.id
+            })}
+            <SourcesAvatars
+              sources={effectiveFirecrawlData}
+              onSourcesClick={() => onSourcesClick(effectiveFirecrawlData)}
+              style={styles.toolDataButton}
+            />
+          </>
+        ) : (
+          console.log('❌ [ActionButtons] NOT rendering SourcesAvatars:', {
+            hasEffectiveFirecrawlData: !!effectiveFirecrawlData,
+            hasOnSourcesClick: !!onSourcesClick,
+            messageId: message.id
+          })
         )}
 
         {effectiveDalleData && onImageClick && (

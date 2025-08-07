@@ -13,6 +13,7 @@ import {
 import { ChatCompletionService } from '@/lib/services/chatCompletionService';
 import { webSearchService } from '@/lib/services/webSearchService';
 import { buildStructuredSystemPrompt } from '@/lib/services/systemPromptBuilder';
+import { generateUUID } from '@/lib/services/streamingUtils';
 import { searchVectorStore, formatRetrievalResults, getThreadVectorStore, getWorkspaceVectorStore } from '@/lib/content';
 import { VectorStoreFile } from '@/lib/content';
 
@@ -319,7 +320,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           message_id: message.id,
           role: message.role,
           content: message.content,
-          tool_calls: message.toolCalls || null, // Store in dedicated column
+          tool_calls: message.tool_calls || message.toolCalls || null, // Store in dedicated column (handle both formats)
           file_ids: fileIds, // Store file IDs in dedicated column
           attachments: attachments, // Store full file attachment data
           metadata: messageMetadata,
@@ -330,8 +331,9 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         onError?.(error);
       } else {
         console.log(`💾 [useChat] Message saved to database: ${message.id}`, {
-          hasToolCalls: !!message.toolCalls?.length,
-          toolCallCount: message.toolCalls?.length || 0,
+          hasToolCalls: !!(message.tool_calls?.length || message.toolCalls?.length),
+          toolCallCount: (message.tool_calls?.length || message.toolCalls?.length) || 0,
+          toolCallsFormat: message.tool_calls ? 'tool_calls' : message.toolCalls ? 'toolCalls' : 'none',
           hasFiles: !!message.files?.length,
           fileCount: message.files?.length || 0,
           fileNames: message.files?.map(f => f.name) || []
@@ -853,6 +855,50 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           if (hasToolCalls && hasToolResults) {
             console.log('🔧 [useChat] Processing tool call completion with results');
             
+            // Merge tool results into tool calls array (matching expected structure)
+            const toolCallsWithResults = state.pendingToolCalls.map(toolCall => {
+              // Find the corresponding result for this tool call
+              const toolResult = state.metadata.toolResults?.find(
+                (result: any) => result.tool_call_id === toolCall.id
+              );
+              
+              if (toolResult) {
+                // Parse the result content if it's a string
+                let parsedResult;
+                try {
+                  parsedResult = typeof toolResult.content === 'string' 
+                    ? JSON.parse(toolResult.content) 
+                    : toolResult.content;
+                } catch (error) {
+                  parsedResult = toolResult.content;
+                }
+                
+                return {
+                  ...toolCall,
+                  result: parsedResult,
+                  llmResult: parsedResult,
+                  storageResult: parsedResult,
+                  isStreaming: false
+                };
+              }
+              
+              return toolCall;
+            });
+            
+            console.log('🔧 [useChat] Tool calls with results merged:', {
+              originalToolCallsCount: state.pendingToolCalls.length,
+              toolResultsCount: state.metadata.toolResults?.length || 0,
+              mergedToolCallsCount: toolCallsWithResults.length,
+              toolCallsWithResults: toolCallsWithResults.map(tc => ({
+                id: tc.id,
+                name: tc.function?.name,
+                hasResult: !!tc.result,
+                resultKeys: tc.result ? Object.keys(tc.result) : [],
+                hasSourcesInResult: !!(tc.result?.sources),
+                sourcesCount: tc.result?.sources?.length || 0
+              }))
+            });
+            
             // Create tool call message with single space content (matching expected structure)
             const toolCallMessage: Message = {
               id: assistantMessageId,
@@ -862,15 +908,28 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
               isStreaming: false,
               isStreamComplete: true,
               messageStatus: 'completed',
-              toolCalls: state.pendingToolCalls, // Tool calls with embedded results
-              skipDatabaseSave: false, // This message should be saved to database
+              tool_calls: toolCallsWithResults, // Use merged tool calls with results
               metadata: {
                 ...state.metadata,
                 message_type: 'tool_call_with_results',
                 save_priority: 'critical',
-                toolResultsCount: state.metadata.toolResults?.length || 0,
+                save_sequence: 1,
+                toolSaveAttempt: 'immediate',
+                toolResultsCount: state.pendingToolCalls.length,
                 isToolCallMessage: true,
+                needs_persistence: true,
+                hasContentInFollowUp: true,
+                hasContentInToolCall: true,
                 toolExecutionComplete: true,
+                // Add image-specific metadata if this is an image generation tool
+                ...(state.pendingToolCalls.some(tc => tc.function?.name === 'image_gen' || tc.function?.name === 'image_generation') && {
+                  image_message: true,
+                  has_image_generation: true,
+                  image_metadata: {
+                    hasImage: true,
+                    timestamp: new Date().toISOString(),
+                  }
+                }),
               },
               reasoningContent: state.reasoningState.reasoningContent || undefined,
               reasoningMetadata: state.reasoningState.reasoningDuration ? {
@@ -879,37 +938,35 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
               } : undefined,
             };
 
-            // Create separate follow-up message with AI response content
-            const followUpMessage: Message = {
-              id: `${assistantMessageId}_followup`,
+            // Create separate assistant response message with AI response content  
+            const assistantResponseId = generateUUID();
+            const assistantResponseMessage: Message = {
+              id: assistantResponseId,
               content: finalContent,
               role: 'assistant',
               timestamp: new Date(),
               isStreaming: false,
               isStreamComplete: true,
               messageStatus: 'completed',
-              skipDatabaseSave: true, // This message should NOT be saved to database
               metadata: {
+                model: state.metadata.model,
+                provider: state.metadata.provider,
+                timestamp: new Date().toISOString(),
+                save_sequence: 2,
+                followUpCompleted: true,
                 isFollowUpContent: true,
                 toolCallMessageId: assistantMessageId,
-                followUpCompleted: true,
-                completedAt: new Date().toISOString(),
                 hasContentInFollowUp: true,
-                save_priority: 'low',
-                save_sequence: 3,
-                provider: state.metadata.provider,
-                model: state.metadata.model,
               },
             };
 
             console.log('🔧 [useChat] Tool call message created:', {
               messageId: toolCallMessage.id,
-              hasToolCalls: !!toolCallMessage.toolCalls?.length,
-              toolCallsCount: toolCallMessage.toolCalls?.length || 0,
-              toolCallIds: toolCallMessage.toolCalls?.map(tc => tc.id) || [],
+              hasToolCalls: !!toolCallMessage.tool_calls?.length,
+              toolCallsCount: toolCallMessage.tool_calls?.length || 0,
+              toolCallIds: toolCallMessage.tool_calls?.map(tc => tc.id) || [],
               contentLength: toolCallMessage.content.length,
-              skipDatabaseSave: toolCallMessage.skipDatabaseSave,
-              toolCallsWithResults: toolCallMessage.toolCalls?.map(tc => ({
+              toolCallsWithResults: toolCallMessage.tool_calls?.map(tc => ({
                 id: tc.id,
                 name: tc.function?.name,
                 hasResult: !!tc.result,
@@ -919,30 +976,33 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
               }))
             });
 
-            console.log('🔧 [useChat] Follow-up message created:', {
-              messageId: followUpMessage.id,
-              contentLength: followUpMessage.content.length,
-              skipDatabaseSave: followUpMessage.skipDatabaseSave,
-              isFollowUp: true
+            console.log('🔧 [useChat] Assistant response message created:', {
+              messageId: assistantResponseMessage.id,
+              contentLength: assistantResponseMessage.content.length,
+              isFollowUp: true,
+              toolCallMessageId: assistantResponseMessage.metadata.toolCallMessageId
             });
 
-            // Update messages: replace streaming message with tool call message, then add follow-up
+            // Update messages: replace streaming message with tool call message, then add assistant response
             setMessages(prev => {
               const updatedMessages = prev.map(msg => 
                 msg.id === assistantMessageId ? toolCallMessage : msg
               );
-              // Add the follow-up message
-              updatedMessages.push(followUpMessage);
+              // Add the assistant response message
+              updatedMessages.push(assistantResponseMessage);
               return updatedMessages;
             });
 
-            // Save only the tool call message to database (follow-up has skipDatabaseSave: true)
+            // Save both the tool call message and assistant response to database
             try {
               await saveMessageToDatabase(toolCallMessage);
               console.log('💾 [useChat] Tool call message saved successfully');
+              
+              await saveMessageToDatabase(assistantResponseMessage);
+              console.log('💾 [useChat] Assistant response message saved successfully');
             } catch (error: any) {
               if (error.code !== '23505') { // Ignore duplicate key errors
-                console.error('💾 [useChat] Failed to save tool call message:', error);
+                console.error('💾 [useChat] Failed to save messages:', error);
               }
             }
 
@@ -957,6 +1017,30 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
               pendingToolCallsCount: state.pendingToolCalls.length,
               toolCallNames: state.pendingToolCalls.map(tc => tc.function?.name)
             });
+            
+            // CRITICAL FIX: Create tool call message immediately for skeleton display
+            const toolCallMessage: Message = {
+              id: assistantMessageId,
+              content: ' ', // Single space as per expected structure
+              role: 'assistant',
+              timestamp: new Date(),
+              isStreaming: true, // Keep streaming for skeleton
+              toolCalls: state.pendingToolCalls,
+              metadata: {
+                ...state.metadata,
+                isToolCallMessage: true,
+                toolCallInProgress: true,
+                hasActiveToolCall: true,
+                currentToolCall: state.pendingToolCalls[0]?.function?.name,
+              },
+            };
+
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMessageId 
+                ? toolCallMessage
+                : msg
+            ));
+            
             // DON'T clear streamingMessageId here - wait for tool execution to complete
             
           } else {
@@ -1020,19 +1104,56 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           console.log('🛠️ [useChat] Tool call detected:', {
             toolName: toolCall.function?.name,
             toolId: toolCall.id,
+            assistantMessageId: assistantMessageId,
             streamingMessageIdAtCallback: streamingMessageId,
             isStreamingMessageIdSet: !!streamingMessageId
           });
-          // Pass the current streamingMessageId when calling the callback
-          onToolCall?.(toolCall, streamingMessageId || undefined);
+
+          // CRITICAL FIX: Use assistantMessageId directly since streamingMessageId might be stale
+          const targetMessageId = assistantMessageId;
+          
+          setMessages(prev => prev.map(msg => 
+            msg.id === targetMessageId 
+              ? { 
+                  ...msg, 
+                  tool_calls: msg.tool_calls ? [...msg.tool_calls, toolCall] : [toolCall],
+                  metadata: { 
+                    ...msg.metadata, 
+                    hasActiveToolCall: true,
+                    currentToolCall: toolCall.function?.name,
+                    toolCallInProgress: true
+                  }
+                }
+              : msg
+          ));
+
+          // Pass the assistantMessageId when calling the callback
+          onToolCall?.(toolCall, targetMessageId);
         },
 
         onToolCallComplete: (toolResult: any) => {
           console.log('✅ [useChat] Tool call completed:', {
             toolCallId: toolResult.tool_call_id,
             toolName: toolResult.name,
-            hasResult: !!toolResult.result
+            hasResult: !!toolResult.result,
+            assistantMessageId: assistantMessageId
           });
+
+          // Update message state to clear tool call in progress
+          const targetMessageId = assistantMessageId;
+          setMessages(prev => prev.map(msg => 
+            msg.id === targetMessageId 
+              ? { 
+                  ...msg, 
+                  metadata: { 
+                    ...msg.metadata, 
+                    toolCallInProgress: false,
+                    hasActiveToolCall: false,
+                  }
+                }
+              : msg
+          ));
+
           onToolCallComplete?.(toolResult);
         },
 

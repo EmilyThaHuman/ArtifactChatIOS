@@ -920,7 +920,7 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 12,
     paddingBottom: 0,
-    paddingTop: 16,
+    paddingTop: 0,
     backgroundColor: '#161618',
   },
   stopButton: {
