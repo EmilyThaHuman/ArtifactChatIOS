@@ -171,7 +171,7 @@ export class VectorStoreUtils {
         source: isWorkspaceVectorStore ? 'workspace' : 'thread',
         threadId: contextData?.threadId,
         workspaceId: contextData?.workspaceId,
-        results: resultsArray.map(r => ({
+        results: resultsArray.map((r: any) => ({
           fileId: r.fileId || r.file_id,
           filename: r.filename || r.file_name,
           contentLength: Array.isArray(r.content) ? r.content.length : (r.content?.length || 0),
@@ -282,8 +282,8 @@ export class VectorStoreUtils {
       } else if (Array.isArray(result.content)) {
         // Handle new API format: content is array of objects with text
         content = result.content
-          .filter(item => item.type === 'text')
-          .map(item => item.text)
+          .filter((item: any) => item.type === 'text')
+          .map((item: any) => item.text)
           .join('\n');
       } else if (result.content && typeof result.content === 'object') {
         // Handle object content - stringify it

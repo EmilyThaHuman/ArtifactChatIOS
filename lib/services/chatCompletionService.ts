@@ -960,8 +960,8 @@ You operate within a hierarchical system where your expertise may be applied to 
       } else if (Array.isArray(result.content)) {
         // Handle new API format: content is array of objects with text
         content = result.content
-          .filter(item => item && item.type === 'text')
-          .map(item => item.text)
+          .filter((item: any) => item && item.type === 'text')
+          .map((item: any) => item.text)
           .join('\n');
       } else if (result.content && typeof result.content === 'object') {
         // Handle object content - stringify it
